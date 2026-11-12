@@ -25,10 +25,19 @@
 set -eo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")}"
 
-if [ -n "${KHIPU_MODULES:-}" ]; then
-    module load $KHIPU_MODULES
+# Módulos: Khipu carga mpich por defecto en cada sesión y Lmod sólo admite un MPI,
+# así que se intercambia aquí para no depender de la sesión desde la que se envía.
+KHIPU_MPI=${KHIPU_MPI:-openmpi4/4.1.6}
+KHIPU_PYTHON=${KHIPU_PYTHON:-python3/3.11.11}
+if type module >/dev/null 2>&1; then
+    module swap mpich "$KHIPU_MPI" 2>/dev/null || module load "$KHIPU_MPI"
+    module load "$KHIPU_PYTHON"
+    if [ -n "${KHIPU_MODULES:-}" ]; then
+        module load $KHIPU_MODULES
+    fi
 fi
 source .venv/bin/activate
+python -c "from mpi4py import MPI; print('[khipu] MPI:', MPI.Get_library_version().split(',')[0])"
 
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 

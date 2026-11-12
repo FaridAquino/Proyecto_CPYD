@@ -1,0 +1,22 @@
+{
+  "fecha": "2026-11-11 22:40:11",
+  "host": "n004",
+  "os": "Linux-4.18.0-553.123.1.el8_10.x86_64-x86_64-with-glibc2.28",
+  "cpu": "Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz",
+  "cpu_logicos": 64,
+  "python": "3.11.11",
+  "numpy": "2.4.6",
+  "mpi4py": "4.1.2",
+  "mpi": "Open MPI v4.1.6, package: Open MPI abuild@openhpc-lenovo-repo Distribution, ident: 4.1.6, repo rev: v4.1.6, Sep 30, 2023\u0000",
+  "mpiexec": "/opt/ohpc/pub/mpi/openmpi4-gnu12/4.1.6/bin/mpiexec",
+  "blas_threads": 1,
+  "slurm": {
+    "SLURM_JOB_NODELIST": "n004",
+    "SLURM_NTASKS": "32",
+    "SLURM_CPUS_ON_NODE": "32",
+    "SLURM_MEM_PER_NODE": "65536",
+    "SLURM_JOB_PARTITION": "standard",
+    "SLURM_JOB_ID": "62519"
+  },
+  "sklearn": "1.9.1"
+}

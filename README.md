@@ -115,7 +115,7 @@ pip install --no-binary=mpi4py mpi4py            # compilado contra el MPI del m
 
 sbatch --ntasks=4 --time=00:10:00 run_khipu.sh   # prueba rápida
 MODE=full sbatch run_khipu.sh                    # campaña completa + comm_bench
-python src/generate_plots_khipu.py               # figures/khipu/k1–k9
+python src/generate_plots_khipu.py               # figures/khipu/k2–k5 (.png)
 ```
 
 `pin_bench.py` y `cpu_topology.py` (afinidad P/E-cores) son específicos de la laptop con Windows y
