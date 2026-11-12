@@ -47,13 +47,37 @@ FIELDS = ["version", "tag", "s", "N", "n_train", "m_test", "d", "k", "rep",
 
 # ----------------------------------------------------------------------------
 def find_mpiexec():
-    cand = [shutil.which("mpiexec"),
+    # MPIEXEC permite forzar el lanzador (p. ej. en un clúster: export MPIEXEC=mpirun).
+    cand = [shutil.which(os.environ["MPIEXEC"]) if os.environ.get("MPIEXEC") else None,
+            shutil.which("mpiexec"), shutil.which("mpirun"),
             os.path.join(sys.prefix, "Library", "bin", "mpiexec.exe"),
             os.path.join(os.environ.get("MSMPI_BIN", ""), "mpiexec.exe")]
     for c in cand:
         if c and os.path.isfile(c):
             return c
-    sys.exit("No se encontró mpiexec (instale mpi4py con Intel MPI o MS-MPI).")
+    sys.exit("No se encontró mpiexec/mpirun (cargue el módulo MPI o instale Intel MPI / MS-MPI).")
+
+
+def limit_s(s_list):
+    """Dentro de un trabajo SLURM descarta los s que superan las tareas asignadas."""
+    ntasks = os.environ.get("SLURM_NTASKS")
+    if not ntasks:
+        return s_list
+    keep = [s for s in s_list if s <= int(ntasks)]
+    if len(keep) < len(s_list):
+        print(f"[runner] SLURM_NTASKS={ntasks}: se omiten s={[s for s in s_list if s > int(ntasks)]}")
+    return keep
+
+
+def cpu_name():
+    try:
+        with open("/proc/cpuinfo", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return platform.processor()
 
 
 def child_env():
@@ -196,15 +220,24 @@ def exp_scaling(mpiexec, csv_path, kind, versions, s_list, N_values, N0, reps, t
 # ----------------------------------------------------------------------------
 def system_info(mpiexec):
     import mpi4py
+    # Sin MPI_Init en el proceso padre: un padre inicializado que luego lanza
+    # mpiexec como subproceso puede colgarse con OpenMPI/MPICH bajo SLURM.
+    mpi4py.rc.initialize = False
+    mpi4py.rc.finalize = False
     from mpi4py import MPI
     info = dict(
         fecha=time.strftime("%Y-%m-%d %H:%M:%S"),
         host=platform.node(), os=platform.platform(),
-        cpu=platform.processor(), cpu_logicos=os.cpu_count(),
+        cpu=cpu_name(), cpu_logicos=os.cpu_count(),
         python=sys.version.split()[0], numpy=np.__version__,
         mpi4py=mpi4py.__version__, mpi=MPI.Get_library_version().strip(),
         mpiexec=mpiexec, blas_threads=1,
     )
+    slurm = {k: v for k, v in os.environ.items()
+             if k in ("SLURM_JOB_ID", "SLURM_JOB_PARTITION", "SLURM_NTASKS",
+                      "SLURM_JOB_NODELIST", "SLURM_CPUS_ON_NODE", "SLURM_MEM_PER_NODE")}
+    if slurm:
+        info["slurm"] = slurm
     try:
         import sklearn
         info["sklearn"] = sklearn.__version__
@@ -227,21 +260,27 @@ def main():
     ap.add_argument("--N0-lin", type=int, default=10000, help="N por proceso (weak-lin)")
     ap.add_argument("--N0-work", type=int, default=50000, help="N con s=1 (weak-work)")
     ap.add_argument("--reps", type=int, default=3)
-    ap.add_argument("--csv", default=os.path.join(RESULTS, "results.csv"))
+    ap.add_argument("--out", default=RESULTS,
+                    help="carpeta de resultados (p. ej. results/khipu)")
+    ap.add_argument("--csv", default=None, help="por defecto <out>/results.csv")
     ap.add_argument("--timeout", type=int, default=3600, help="s por lanzamiento")
     ap.add_argument("--quick", action="store_true",
                     help="prueba rápida: s<=4, N pequeños, 1 rep, CSV aparte")
     args = ap.parse_args()
 
+    out_dir = os.path.abspath(args.out)
     if args.quick:
         args.s, args.N, args.reps = [1, 2, 4], [20000], 1
         args.N0_lin, args.N0_work = 5000, 10000
-        args.csv = os.path.join(RESULTS, "results_quick.csv")
+        args.csv = os.path.join(out_dir, "results_quick.csv")
+    # Ruta absoluta: los scripts hijos se ejecutan con cwd = src/.
+    args.csv = os.path.abspath(args.csv or os.path.join(out_dir, "results.csv"))
+    args.s = limit_s(args.s)
 
-    os.makedirs(RESULTS, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
     mpiexec = find_mpiexec()
     info = system_info(mpiexec)
-    with open(os.path.join(RESULTS, "system_info.json"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(out_dir, "system_info.json"), "w", encoding="utf-8") as fh:
         json.dump(info, fh, indent=2, ensure_ascii=False)
     print(f"[runner] {info['cpu']} | {info['cpu_logicos']} hilos | {info['mpi']}")
     print(f"[runner] CSV -> {args.csv}")

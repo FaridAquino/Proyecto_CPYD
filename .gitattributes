@@ -1,0 +1,2 @@
+# Los scripts de shell deben llegar a Khipu con saltos de línea LF.
+*.sh text eol=lf

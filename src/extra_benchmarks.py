@@ -8,7 +8,8 @@ extra_benchmarks.py -- Experimentos complementarios (Fase 3b).
   3. noise   : strong N=50000 completado hasta --reps-noise repeticiones
                (benchmark_runner.py, reanudable)      -> results/results.csv
 
-Uso:  python extra_benchmarks.py [--exp pinning comm noise]
+Uso:  python extra_benchmarks.py [--exp pinning comm noise] [--out results/khipu]
+      (pinning sólo funciona en Windows; en Khipu use --exp comm)
 """
 import argparse
 import json
@@ -16,8 +17,7 @@ import os
 import subprocess
 import sys
 
-from benchmark_runner import RESULTS, child_env, find_mpiexec, HERE
-from cpu_topology import groups, topology
+from benchmark_runner import RESULTS as DEFAULT_RESULTS, child_env, find_mpiexec, limit_s, HERE
 
 
 def sh(cmd):
@@ -49,12 +49,17 @@ def main():
     ap.add_argument("--exp", nargs="+", default=["pinning", "comm", "noise"])
     ap.add_argument("--reps-noise", type=int, default=7)
     ap.add_argument("--s", type=int, nargs="+", default=[2, 4, 8, 12, 16, 20, 24])
+    ap.add_argument("--out", default=DEFAULT_RESULTS,
+                    help="carpeta de resultados (p. ej. results/khipu)")
     args = ap.parse_args()
     mpiexec = find_mpiexec()
+    RESULTS = os.path.abspath(args.out)
     os.makedirs(RESULTS, exist_ok=True)
+    args.s = [s for s in limit_s(args.s) if s >= 2]
 
     if "pinning" in args.exp:
         print("=== pinning ===")
+        from cpu_topology import groups, topology      # sólo Windows (kernel32)
         top = topology()
         g = groups(top)
         with open(os.path.join(RESULTS, "cpu_topology.json"), "w") as fh:
@@ -82,7 +87,8 @@ def main():
     if "noise" in args.exp:
         print("=== noise (strong N=50000) ===")
         subprocess.run([sys.executable, "-u", "benchmark_runner.py", "--exp", "strong",
-                        "--N", "50000", "--reps", str(args.reps_noise)],
+                        "--N", "50000", "--reps", str(args.reps_noise),
+                        "--out", RESULTS],
                        cwd=HERE, env=child_env(), check=True)
 
 

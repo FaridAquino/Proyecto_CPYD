@@ -102,6 +102,25 @@ El runner es reanudable y fija `OMP/MKL/OPENBLAS_NUM_THREADS=1` (un núcleo por 
 Para mediciones estables: equipo conectado a la corriente, modo de máximo rendimiento y sin otras
 aplicaciones abiertas.
 
+### 4b. Ejecución en Khipu (clúster UTEC, SLURM)
+
+Los resultados y figuras de Khipu se guardan aparte (`results/khipu/`, `figures/khipu/`) y no se
+mezclan con los de la laptop.
+
+```bash
+module load <compilador> <mpi> <python>          # ver `module avail`
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-khipu.txt
+pip install --no-binary=mpi4py mpi4py            # compilado contra el MPI del módulo
+
+sbatch --ntasks=4 --time=00:10:00 run_khipu.sh   # prueba rápida
+MODE=full sbatch run_khipu.sh                    # campaña completa + comm_bench
+python src/generate_plots_khipu.py               # figures/khipu/k1–k9
+```
+
+`pin_bench.py` y `cpu_topology.py` (afinidad P/E-cores) son específicos de la laptop con Windows y
+no se usan en Khipu.
+
 ### 5. Compilar el informe
 
 ```bash

@@ -1,0 +1,8 @@
+# Dependencias para Khipu (Linux). Sin versiones fijas: se adaptan al Python del clúster.
+# mpi4py se instala APARTE, compilado contra el MPI del módulo cargado:
+#     pip install --no-binary=mpi4py mpi4py
+numpy
+scikit-learn
+scipy
+matplotlib
+pandas
