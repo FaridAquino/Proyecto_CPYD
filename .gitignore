@@ -1,0 +1,43 @@
+# ---------------- Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+*.egg-info/
+
+# ---------------- Datos regenerables (python src/data_generator.py)
+data/
+*.npz
+
+# ---------------- Salidas temporales de experimentos
+results/*_quick.csv
+results/*_log.txt
+*.tmp
+temp*/
+
+# ---------------- LaTeX
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.xdv
+
+# ---------------- Sistema / editores
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

@@ -1,0 +1,59 @@
+% --- Tabla: registro de versiones (load_digits) ---
+\begin{tabular}{lrrrrr}
+\toprule
+Versión & $s$ & $T_{\text{total}}$ [s] & Speedup vs.\ sec. & Exactitud & Validación \\
+\midrule
+Secuencial (original) & 1 & 1.401 & 1.00 & 0.9833 & referencia \\
+Beta 1 & 1 & 1.4022 & 1.0 & 0.9833 & = sec. \\
+Beta 1 & 8 & 0.2099 & 6.7 & 0.9833 & = sec. \\
+Beta 2 & 1 & 0.0090 & 155.7 & 0.9833 & = sec. \\
+Beta 2 & 8 & 0.0030 & 467.1 & 0.9833 & = sec. \\
+Beta 3 & 1 & 0.0078 & 178.8 & 0.9833 & 100\,\% = sklearn \\
+Beta 3 & 8 & 0.0020 & 699.8 & 0.9833 & 100\,\% = sklearn \\
+DAG & 1 & 0.0083 & 169.6 & 0.9833 & 100\,\% = sklearn \\
+DAG & 8 & 0.0014 & 1014.1 & 0.9833 & 100\,\% = sklearn \\
+\bottomrule
+\end{tabular}
+
+% --- Tabla: escalabilidad fuerte, N = 200000 ---
+\begin{tabular}{rrrrrrr}
+\toprule
+$s$ & $T_{\text{total}}$ [s] & $T_{\text{comp}}$ [s] & $T_{\text{comm}}$ [s] & $S(s)$ & $E(s)$ & GFLOP/s \\
+\midrule
+1 & 98.46 & 98.46 & 0.003 & 1.00 & 1.00 & 12.5 \\
+2 & 49.53 & 49.51 & 0.131 & 1.99 & 0.99 & 24.8 \\
+4 & 29.09 & 29.06 & 0.623 & 3.39 & 0.85 & 42.3 \\
+8 & 19.97 & 19.93 & 0.749 & 4.93 & 0.62 & 61.7 \\
+12 & 18.60 & 18.54 & 0.972 & 5.29 & 0.44 & 66.3 \\
+16 & 18.90 & 18.80 & 1.195 & 5.21 & 0.33 & 65.4 \\
+20 & 19.50 & 19.39 & 1.574 & 5.05 & 0.25 & 63.4 \\
+24 & 19.26 & 19.11 & 2.705 & 5.11 & 0.21 & 64.3 \\
+\bottomrule
+\end{tabular}
+
+% --- Tabla: constantes ajustadas ---
+\begin{tabular}{llr}
+\toprule
+Modelo & Constante & Valor \\
+\midrule
+Bcast, árbol binario & $\alpha$ [s];\ $\beta$ [s/palabra] & 0.00e+00;\ 1.79e-09 \\
+ & $R^2$ & 0.901 \\
+Bcast, lineal & $\alpha$ [s];\ $\beta$ [s/palabra] & 0.00e+00;\ 4.72e-10 \\
+ & $R^2$ & 0.994 \\
+\midrule
+$T_p(s)$, $T_{comm}$ en árbol & $k_1$ [s/FLOP];\ $k_2$ & 7.55e-11;\ 138.95 \\
+ & error relativo medio & 3.4\,\% \\
+ & $s^*=k_1W\ln 2/(k_2c)$ ($N$=200k) & 20 \\
+$T_p(s)$, $T_{comm}$ lineal & $k_1$ [s/FLOP];\ $k_2$ & 8.45e-11;\ 122.03 \\
+ & error relativo medio & 6.4\,\% \\
+ & $s^*=\sqrt{k_1W/(k_2c)}$ ($N$=200k) & 11.8 \\
+Experimental & $\arg\min_s T_p(s)$ ($N$=200k) & 12 \\
+\midrule
+Amdahl (Beta 3), $1\le s\le 24$ & $f_s$;\ $S_{max}=1/f_s$ & 0.140;\ 7.1 \\
+Amdahl (Beta 3), $s\le 8$ & $f_s$;\ $S_{max}=1/f_s$ & 0.085;\ 11.7 \\
+Amdahl (DAG), $1\le s\le 24$ & $f_s$;\ $S_{max}=1/f_s$ & 0.132;\ 7.6 \\
+Amdahl (DAG), $s\le 8$ & $f_s$;\ $S_{max}=1/f_s$ & 0.080;\ 12.6 \\
+Gustafson (Beta 3), $N\propto\sqrt{s}$ & $f_s$ & 0.765 \\
+Gustafson (Beta 3), $N\propto s$ & $f_s$ & 0.768 \\
+\bottomrule
+\end{tabular}

@@ -1,0 +1,155 @@
+% ============================================================================
+% Algoritmos 4, 5 y 6 -- formalismo PARDO unificado (feedback entrega parcial)
+% Preámbulo requerido (mismo estilo del informe parcial):
+%   \usepackage[ruled,linesnumbered,noend]{algorithm2e}
+%   \SetKwFor{ForAllPar}{forall}{pardo}{end}
+%   \SetKwInput{KwLocal}{Datos locales}
+%   \SetKwInput{KwShared}{Memoria global}
+%   \SetKwComment{tcp}{$\triangleright$\ }{}
+%   \SetKwFunction{Bcast}{Bcast}\SetKwFunction{Scatterv}{Scatterv}
+%   \SetKwFunction{Gather}{Gather}\SetKwFunction{Gatherv}{Gatherv}
+%   \SetKwFunction{Predict}{knn\_predict}
+% Convención única: TODO bucle concurrente se escribe
+%   forall <índice> <- <ini> to <fin> pardo
+% tanto para procesadores PRAM (Alg. 4), procesos MPI (Algs. 5 y 6) como para
+% consultas locales independientes (paralelismo de datos dentro del proceso).
+% ============================================================================
+
+% ---------------------------------------------------------------- Algoritmo 4
+\begin{algorithm}[H]
+\caption{KNN en PRAM CREW}\label{alg:knn-pram}
+\KwIn{Datos $X\in\mathbb{R}^{(n_{\text{train}}+m_{\text{test}})\times d}$ y etiquetas
+      $y\in\{0,\dots,9\}^{n_{\text{train}}+m_{\text{test}}}$}
+\KwOut{Exactitud del modelo y tiempo de ejecución}
+\KwShared{$X_{\text{tr}}, y_{\text{tr}}$ (CR); $\hat{y}$ (EW)}
+\BlankLine
+$X_{\text{tr}}, X_{\text{te}}, y_{\text{tr}}, y_{\text{te}} \leftarrow
+  \texttt{train\_test\_split}(X, y, \texttt{test\_size}=0.2, \texttt{random\_state}=42)$\;
+$k \leftarrow 3$\;
+$t_{\text{inicio}} \leftarrow \texttt{time}()$\;
+$\hat{y} \leftarrow 0 \in \{0,\dots,9\}^{m_{\text{test}}}$\;
+\ForAllPar{$j \leftarrow 1$ \KwTo $m_{\text{test}}$}{
+  $\hat{y}[j] \leftarrow$ \Predict{$X_{\text{te}}[j], X_{\text{tr}}, y_{\text{tr}}, k$}
+    \tcp*{procesador $j$; Algoritmo 2}
+}
+$\text{exactitud} \leftarrow \texttt{mean}(\hat{y} = y_{\text{te}})$\;
+$t_{\text{fin}} \leftarrow \texttt{time}()$\;
+\Return{exactitud, $t_{\text{fin}} - t_{\text{inicio}}$}\;
+\end{algorithm}
+
+% ---------------------------------------------------------------- Algoritmo 5
+\begin{algorithm}[H]
+\caption{KNN distribuido con MPI: replicación de $X_{\text{tr}}$, partición de $X_{\text{te}}$}\label{alg:knn-mpi}
+\KwIn{Datos $X$, etiquetas $y$, $s$ procesos, $k=3$}
+\KwOut{Exactitud del modelo y tiempo de ejecución (en el proceso $0$)}
+\KwLocal{El proceso $p$ recibe $m_p=\lfloor m_{\text{test}}/s\rfloor+[\,p<m_{\text{test}}\bmod s\,]$
+         consultas desde $\mathrm{displ}_p=\sum_{i<p} m_i$}
+\BlankLine
+\ForAllPar{$p \leftarrow 0$ \KwTo $s-1$}{
+  \If{$p = 0$}{
+    $X_{\text{tr}}, X_{\text{te}}, y_{\text{tr}}, y_{\text{te}} \leftarrow
+      \texttt{train\_test\_split}(X, y, \texttt{test\_size}=0.2, \texttt{random\_state}=42)$\;
+    $t_{\text{inicio}} \leftarrow \texttt{Wtime}()$\;
+  }
+  \tcp*[l]{replicación: $\log s\,(\alpha + n_{\text{train}} d\,\beta)$}
+  $X_{\text{tr}}, y_{\text{tr}} \leftarrow$ \Bcast{$X_{\text{tr}}, y_{\text{tr}}$, raíz $=0$}\;
+  \tcp*[l]{partición de consultas: $\alpha\log s + m_{\text{test}} d\,\beta$}
+  $X^{(p)}_{\text{te}} \leftarrow$ \Scatterv{$X_{\text{te}}$, $(m_i d)_i$, $(\mathrm{displ}_i d)_i$, raíz $=0$}\;
+  \tcp*[l]{cómputo local: $m_p\, n_{\text{train}}\,(3d)$ FLOPs}
+  \ForAllPar{$j \leftarrow 1$ \KwTo $m_p$}{
+    $\hat{y}^{(p)}[j] \leftarrow$ \Predict{$X^{(p)}_{\text{te}}[j], X_{\text{tr}}, y_{\text{tr}}, k$}
+      \tcp*{Algoritmo 2; CR}
+  }
+  \tcp*[l]{recolección: $\alpha\log s + m_{\text{test}}\,\beta$}
+  $\hat{y}[\mathrm{displ}_p+1 \,..\, \mathrm{displ}_p+m_p] \leftarrow$
+     \Gatherv{$\hat{y}^{(p)}$, $(m_i)_i$, $(\mathrm{displ}_i)_i$, raíz $=0$}
+     \tcp*{EW: bloques disjuntos}
+  \If{$p = 0$}{
+    $\text{exactitud} \leftarrow \texttt{mean}(\hat{y} = y_{\text{te}})$\;
+    $t_{\text{fin}} \leftarrow \texttt{Wtime}()$\;
+    \Return{exactitud, $t_{\text{fin}}-t_{\text{inicio}}$}\;
+  }
+}
+\end{algorithm}
+
+\paragraph{Formalismo \texttt{pardo}.}
+En el Algoritmo~\ref{alg:knn-pram} el índice $j$ recorre los $\mte$ procesadores de una PRAM
+CREW~\cite{jaja1992}: todos leen concurrentemente $\Xtr$ y $\ytr$ (CR) y el procesador $j$ escribe
+sólo en $\hat{y}[j]$ (EW). En los Algoritmos~\ref{alg:knn-mpi} y~\ref{alg:knn-dag}, el bucle
+externo \textbf{forall} $p\leftarrow 0$ \textbf{to} $s-1$ \textbf{pardo} expresa el paradigma
+SPMD: los $s$ procesos ejecutan concurrentemente el mismo cuerpo y se distinguen sólo por su rango;
+las colectivas son puntos de sincronización implícita. El bucle interno expresa que las consultas
+locales son independientes (no hay aristas entre ellas en el DAG). Como cada proceso ocupa un único
+núcleo, ese \texttt{pardo} interno se ejecuta como paralelismo de datos ---producto matricial por
+bloques--- y, por el teorema de Brent~\cite{brent1974},
+\begin{equation}
+  \Tcomp(s)\le\frac{W}{s}+T_\infty .\label{eq:brent}
+\end{equation}
+Con $m_p$ procesadores virtuales por proceso ($s\,m_p=\mte$), el Algoritmo~\ref{alg:knn-mpi} se
+reduce exactamente al Algoritmo~\ref{alg:knn-pram}.
+
+
+% ---------------------------------------------------------------- Algoritmo 6
+\begin{algorithm}[H]
+\caption{KNN distribuido con MPI según el DAG: partición de $X_{\text{tr}}$, difusión de $X_{\text{te}}$}\label{alg:knn-dag}
+\KwIn{Datos $X$, etiquetas $y$, $s$ procesos, $k=3$}
+\KwOut{Exactitud del modelo y tiempo de ejecución (en el proceso $0$)}
+\KwLocal{El proceso $p$ recibe $n_p=\lfloor n_{\text{train}}/s\rfloor+[\,p<n_{\text{train}}\bmod s\,]$
+         puntos de entrenamiento $(X^{(p)}_{\text{tr}}, y^{(p)}_{\text{tr}})$}
+\BlankLine
+\ForAllPar{$p \leftarrow 0$ \KwTo $s-1$}{
+  \If{$p = 0$}{
+    $X_{\text{tr}}, X_{\text{te}}, y_{\text{tr}}, y_{\text{te}} \leftarrow
+      \texttt{train\_test\_split}(X, y, \texttt{test\_size}=0.2, \texttt{random\_state}=42)$\;
+    $t_{\text{inicio}} \leftarrow \texttt{Wtime}()$\;
+  }
+  \tcp*[l]{partición del entrenamiento: $\alpha\log s + n_{\text{train}} d\,\beta$}
+  $X^{(p)}_{\text{tr}}, y^{(p)}_{\text{tr}} \leftarrow$ \Scatterv{$X_{\text{tr}}, y_{\text{tr}}$, raíz $=0$}\;
+  \tcp*[l]{difusión de consultas: $\log s\,(\alpha + m_{\text{test}} d\,\beta)$}
+  $X_{\text{te}} \leftarrow$ \Bcast{$X_{\text{te}}$, raíz $=0$}\;
+  \tcp*[l]{cómputo local: $m_{\text{test}}\, n_p\,(3d)$ FLOPs}
+  \ForAllPar{$j \leftarrow 1$ \KwTo $m_{\text{test}}$}{
+    $(\delta^{(p)}_j, \ell^{(p)}_j) \leftarrow$ $k$ menores distancias de $X_{\text{te}}[j]$ a $X^{(p)}_{\text{tr}}$ y sus etiquetas\;
+  }
+  \tcp*[l]{recolección de candidatos: $\alpha\log s + m_{\text{test}}\,k\,s\,\beta$}
+  $\{(\delta^{(i)}, \ell^{(i)})\}_{i=0}^{s-1} \leftarrow$ \Gather{$(\delta^{(p)}, \ell^{(p)})$, raíz $=0$}\;
+  \If{$p = 0$}{
+    \For{$j \leftarrow 1$ \KwTo $m_{\text{test}}$}{
+      $\hat{y}[j] \leftarrow \texttt{moda}\big(k$ etiquetas de menor distancia entre los $s\,k$ candidatos de $j\big)$
+        \tcp*{fusión serial $O(s\,k)$}
+    }
+    $\text{exactitud} \leftarrow \texttt{mean}(\hat{y} = y_{\text{te}})$\;
+    $t_{\text{fin}} \leftarrow \texttt{Wtime}()$\;
+    \Return{exactitud, $t_{\text{fin}}-t_{\text{inicio}}$}\;
+  }
+}
+\end{algorithm}
+
+% ---------------------------------------------------------------- Texto sugerido
+% \paragraph{Formalismo \texttt{pardo}.}
+% Los tres algoritmos paralelos usan la misma construcción
+% \textbf{forall} $i\leftarrow a$ \textbf{to} $b$ \textbf{pardo} [JáJá]. En el
+% Algoritmo~\ref{alg:knn-pram} el índice recorre los $m_{\text{test}}$
+% procesadores de la PRAM CREW. En los Algoritmos~\ref{alg:knn-mpi} y
+% \ref{alg:knn-dag} el bucle externo sobre $p$ expresa el paradigma SPMD: los
+% $s$ procesos MPI ejecutan concurrentemente el mismo cuerpo y se distinguen sólo
+% por su rango; las colectivas son puntos de sincronización implícita. El bucle
+% interno expresa que las consultas son independientes (no existen aristas entre
+% ellas en el DAG); como cada proceso ocupa un único núcleo, se ejecuta como
+% paralelismo de datos (producto matricial por bloques, BLAS/SIMD) y, por el
+% teorema de Brent, $T_{\text{comp}}(s)\le W/s+T_\infty$. Con $m_p$ procesadores
+% virtuales por proceso ($s\,m_p=m_{\text{test}}$), el Algoritmo~\ref{alg:knn-mpi}
+% se reduce exactamente al Algoritmo~\ref{alg:knn-pram}.
+%
+% \paragraph{Corrección del Algoritmo~\ref{alg:knn-dag}.}
+% Si $x$ pertenece a los $k$ vecinos globales de $q$ y $x\in X^{(p)}_{\text{tr}}$,
+% entonces $x$ también está entre los $k$ vecinos de $q$ en el bloque $p$; luego
+% la unión de los $s\,k$ candidatos contiene a los $k$ vecinos globales y la
+% predicción coincide con la secuencial (salvo empates exactos de distancia).
+%
+% \paragraph{Comparación de costos.}
+% Alg.~5: $T_{\text{comm}}=O\big(\alpha\log s+\beta(n_{\text{train}}d\log s+m_{\text{test}}d)\big)$.
+% Alg.~6: $T_{\text{comm}}=O\big(\alpha\log s+\beta(n_{\text{train}}d+m_{\text{test}}d\log s+m_{\text{test}}ks)\big)$,
+% más una fase serial $O(m_{\text{test}}\,s\,k)$ en el proceso $0$.
+% Como $n_{\text{train}}=4\,m_{\text{test}}$, el Alg.~6 transfiere menos datos
+% en la difusión, pero su recolección y su fusión crecen linealmente con $s$.

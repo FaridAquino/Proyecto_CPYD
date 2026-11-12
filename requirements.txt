@@ -1,0 +1,9 @@
+# CS4052 - Proyecto 5: KNN con MPI (versiones usadas en los experimentos, Python 3.11.9)
+mpi4py==4.1.2
+impi-rt==2021.19.1        # runtime Intel MPI (Windows); en Linux use OpenMPI/MPICH del sistema
+numpy==1.26.4
+scikit-learn==1.9.1
+scipy==1.17.1
+matplotlib==3.11.2
+pandas==2.2.3
+psutil==7.2.2

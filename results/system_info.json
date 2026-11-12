@@ -1,0 +1,14 @@
+{
+  "fecha": "2026-11-08 18:40:16",
+  "host": "LAPTOP-4P6H60ER",
+  "os": "Windows-10-10.0.26200-SP0",
+  "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+  "cpu_logicos": 24,
+  "python": "3.11.9",
+  "numpy": "1.26.4",
+  "mpi4py": "4.1.2",
+  "mpi": "Intel(R) MPI Library 2021.19.0 for Windows* OS",
+  "mpiexec": "C:\\Users\\Josue Velo\\AppData\\Local\\Programs\\Python\\Python311\\Library\\bin\\mpiexec.exe",
+  "blas_threads": 1,
+  "sklearn": "1.9.1"
+}
