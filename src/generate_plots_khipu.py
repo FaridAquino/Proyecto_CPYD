@@ -15,23 +15,23 @@ Dos modos (--modo), cada uno con su carpeta de resultados y de figuras:
 Entradas  results.csv; comm_bench.csv (k6 y k9). En modo test, si la carpeta no
           tiene comm_bench.csv se usa el de aumento_train (--comm): la
           comunicación no depende del dataset.
-Salidas   k2_tiempos, k3_speedup, k4_eficiencia, k5_gflops, k6_modelo, k7_debil,
+Salidas   k2_tiempos, k3_speedup, k4_eficiencia, k5_gflops, k6_modelo,
           k9_comunicacion (sólo modo train) (.png, nunca .pdf);
           model_fit.json y tables.tex en la carpeta de resultados.
 
 Todas las figuras usan el número de procesos p en el eje x (la columna del CSV se
 sigue llamando 's'). Sólo K4 compara Beta 3 con la variante DAG.
-k2, k3 y k5 tienen hasta dos paneles (se omite el que no tenga datos):
+k3: "Speedup" de la Beta 3, una recta por tamaño fijo (N o m).
+k2 y k5 tienen hasta dos paneles (se omite el que no tenga datos):
   (a) versiones sobre load_digits (tag 'versions'): Beta 1, Beta 2 y Beta 3
       (+ el secuencial original en la de tiempos). Sólo llega a p = 8: el runner
       limita este experimento a s <= 8 (benchmark_runner.py) porque load_digits
       tiene m = 360 consultas; con p = 32 cada proceso recibiría ~11 y el tiempo
       (~ms) quedaría dominado por el arranque/latencia de MPI, no por el cómputo;
   (b) escalabilidad fuerte de la Beta 3, una serie por tamaño, p <= 32.
-k4: eficiencia "Fuerte" (una serie por tamaño) y "Débil", Beta 3 vs DAG.
+k4: "Eficiencia" (strong), Beta 3 vs DAG: una recta por tamaño fijo (N o m).
 k6: modelo T_p(p) = k1 W/p + k2 T_comm(p) ajustado a la Beta 3 (strong) y p* óptimo.
-k7: escalabilidad débil de la Beta 3: speedup escalado y
-    eficiencia débil E_w(p) = S_esc(p)/p, que sería constante (= 1) si escalara.
+Escalabilidad débil: no se grafica; E_w(p) se guarda en model_fit.json ("weak").
 k9: microbenchmark de MPI_Bcast / MPI_Gather -> alpha, beta.
 
 Uso:
@@ -287,101 +287,54 @@ panels("k2_tiempos", tiempos_a, tiempos_b)
 
 
 # =========================================================================
-# k3: speedup
+# k3: speedup de la Beta 3 (strong scaling), una recta por tamaño fijo (N o m)
+#   (el ajuste de Amdahl se sigue guardando en model_fit.json, no se dibuja)
 # =========================================================================
-def speedup_a(ax):
-    top_s = max(S_VERS)
-    for (v, lab), (col, mk, ls) in zip(VB, SERIES):
-        p = sp(f"{v}_digits")
-        if p:
-            ax.plot(p["s"], p["S"], color=col, marker=mk, ls=ls, label=lab)
-    ax.plot([1, top_s], [1, top_s], color=C["light"], lw=1, label="ideal $S=p$", zorder=1)
-    ax.set_ylim(0, top_s * 1.05); sticks(ax, S_VERS)
-    ax.set_ylabel("speedup $S(p)=T(1)/T(p)$")
-    ax.set_title(f"Speedup: {T_DIGITS}")
-    ax.legend(loc="upper left")
-
-
-def speedup_b(ax):
+if not N_STRONG:
+    skip("k3_speedup", "no hay datos de strong scaling")
+else:
+    fig, ax = plt.subplots(figsize=(W1, 2.6))
     top_s, top_S = max(S_STRONG), 1.0
     for N, (col, mk, ls) in zip(N_STRONG, SERIES):
-        p = sp(skey("v3", N))
-        if p:
-            ax.plot(p["s"], p["S"], color=col, marker=mk, ls="none", label=f"medido, {nlab(N)}")
-            top_S = max(top_S, max(p["S"]))
-    ax.plot([1, top_s], [1, top_s], color=C["light"], lw=1, label="ideal $S=p$", zorder=1)
-    p = sp(skey("v3", NMAX))
-    if p and "amdahl_fs" in p:
-        ss = np.linspace(1, top_s, 200)
-        ax.plot(ss, amdahl(ss, p["amdahl_fs"]), color=C["ink"], ls="--", lw=1.1,
-                label=f"Amdahl ({nlab(NMAX)}): $f_s$={p['amdahl_fs']:.3f}, "
-                      f"$S_{{max}}$={p['amdahl_Smax']:.1f}")
+        q = sp(skey("v3", N))
+        if q:
+            ax.plot(q["s"], q["S"], color=col, marker=mk, ls=ls, label=nlab(N))
+            top_S = max(top_S, max(q["S"]))
+    ax.plot([1, top_s], [1, top_s], color=C["light"], lw=1, zorder=1)     # ideal S = p
     ax.set_ylim(0, min(top_s, top_S * 2.0) * 1.05); sticks(ax, S_STRONG)
-    ax.set_ylabel("speedup $S(p)=T(1)/T(p)$")
-    ax.set_title(f"Speedup: {T_STRONG}")
+    ax.set_xlabel("procesos $p$"); ax.set_ylabel("speedup")
+    ax.set_title("Speedup")
     ax.legend(loc="upper left")
-
-
-panels("k3_speedup", speedup_a, speedup_b)
+    save(fig, "k3_speedup")
 
 
 # =========================================================================
-# k4: eficiencia "Fuerte" y "Débil", Beta 3 vs DAG
-#   color = tamaño (N o m); Beta 3 = línea continua y círculo, DAG = discontinua y cuadrado
+# k4: eficiencia, Beta 3 vs DAG (strong scaling: cada recta tiene N o m fijo)
+#   color = tamaño; Beta 3 = línea continua y círculo, DAG = discontinua y cuadrado
 # =========================================================================
 VSTYLE = {"v3": ("o", "-"), "dag": ("s", "--")}
 COLORS = [C["blue"], C["orange"], C["green"], C["pink"]]
 
-
-def eficiencia_fuerte(ax):
-    pv = set()
+if not N_STRONG:
+    skip("k4_eficiencia", "no hay datos de strong scaling")
+else:
+    fig, ax = plt.subplots(figsize=(W1 + 0.4, 3.0))
+    pv, emax = set(), 1.0
+    fijo = "" if MODO == "train" else "$n$=50k, "      # modo test: el train también es fijo
     for v, vlab in VERS:
         mk, ls = VSTYLE[v]
         for N, col in zip(N_STRONG, COLORS):
-            p = sp(skey(v, N))
-            if p:
-                ax.plot(p["s"], p["E"], color=col, marker=mk, ls=ls, label=f"{vlab}, {nlab(N)}",
-                        mfc=col if v == "v3" else "white")
-                pv |= set(p["s"])
+            q = sp(skey(v, N))
+            if q:
+                ax.plot(q["s"], q["E"], color=col, marker=mk, ls=ls,
+                        label=f"{vlab}, {fijo}{nlab(N)}", mfc=col if v == "v3" else "white")
+                pv |= set(q["s"]); emax = max(emax, max(q["E"]))
     ax.axhline(1, color=C["light"], lw=1, zorder=1)
-    ax.set_ylim(0, 1.15); sticks(ax, sorted(pv))
+    ax.set_ylim(0, emax * 1.08); sticks(ax, sorted(pv))
+    ax.set_xlabel("procesos $p$")
     ax.set_ylabel("eficiencia $E(p)=S(p)/p$")
-    ax.set_title("Fuerte: eficiencia, Beta 3 vs DAG"
-                 + ("" if MODO == "train" else ", $n$=50k fijo"))
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.27), ncol=2)
-
-
-def eficiencia_debil(ax):
-    pv = set()
-    for v, vlab in VERS:
-        mk, ls = VSTYLE[v]
-        for (tag, tlab), col in zip(WEAK_TAGS, COLORS):
-            w = weak_series(v, tag)
-            if w is None:
-                continue
-            d, Sg, E = w
-            ax.plot(d.s, E, color=col, marker=mk, ls=ls, label=weak_label(vlab, tlab, d),
-                    mfc=col if v == "v3" else "white")
-            pv |= set(d.s.astype(int))
-    ax.axhline(1, color=C["light"], lw=1, label="ideal $E_w=1$", zorder=1)
-    ax.set_ylim(0, 1.15); sticks(ax, sorted(pv))
-    ax.set_ylabel(r"eficiencia débil $E_w(p)=S_{esc}(p)/p$")
-    ax.set_title("Débil: eficiencia, Beta 3 vs DAG")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.27), ncol=2)
-
-
-K4 = [f for f, ok in ((eficiencia_fuerte, bool(N_STRONG)),
-                      (eficiencia_debil, any(weak_series(v, t) for v, _ in VERS
-                                             for t, _ in WEAK_TAGS)))
-      if ok]
-if not K4:
-    skip("k4_eficiencia", "no hay datos de strong ni weak")
-else:
-    fig, axes = plt.subplots(1, len(K4), figsize=(W2 if len(K4) > 1 else W1, 2.7),
-                             squeeze=False)
-    for ax, f in zip(axes[0], K4):
-        f(ax)
-        ax.set_xlabel("procesos $p$")
+    ax.set_title("Eficiencia")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=2)
     save(fig, "k4_eficiencia")
 
 
@@ -538,7 +491,7 @@ if comm and N_STRONG:
 
 
 # =========================================================================
-# k7: escalabilidad débil (Beta 3): speedup escalado y eficiencia débil
+# Escalabilidad débil (sin figura; sólo se guarda en model_fit.json)
 #   S_esc(p) = (W(p)/W(1)) * T(1)/T(p),   E_w(p) = S_esc(p)/p   (ideal: E_w = 1)
 #   weak-work: N = N0 sqrt(p) -> W/p constante -> E_w = T(1)/T(p)
 #   weak-lin : N = N0 p       -> N/p constante (W/p crece como p)
@@ -555,30 +508,6 @@ for v, _ in VERS:
                 T_total=d.T_total.tolist(), T_comp=d.T_comp.tolist(), T_comm=d.T_comm.tolist(),
                 frac_comm=(d.T_comm / d.T_total).tolist(), S_escalado=Sg.tolist(), E=E.tolist())
 
-WEAK = [(t, lab) for t, lab in WEAK_TAGS if weak_series("v3", t)]
-if not WEAK:
-    skip("k7_debil", "no hay filas v3 de escalabilidad débil")
-else:
-    fig, (axS, axE) = plt.subplots(1, 2, figsize=(W2, 2.5))
-    top_p, S_W = 1, set()
-    for (tag, tlab), (col, mk, ls) in zip(WEAK, SERIES):
-        d, Sg, E = weak_series("v3", tag)
-        lab = weak_label("Beta 3", tlab, d)
-        axS.plot(d.s, Sg, color=col, marker=mk, ls=ls, label=lab)
-        axE.plot(d.s, E, color=col, marker=mk, ls=ls, label=lab)
-        top_p = max(top_p, int(d.s.max())); S_W |= set(d.s.astype(int))
-    axS.plot([1, top_p], [1, top_p], color=C["light"], lw=1, label="ideal $S=p$", zorder=1)
-    axS.set_ylim(0, top_p * 1.05)
-    axS.set_ylabel(r"speedup escalado $\frac{W(p)}{W(1)}\frac{T(1)}{T(p)}$")
-    axS.set_title("Débil: speedup escalado, Beta 3")
-    axE.axhline(1, color=C["light"], lw=1, label="ideal $E_w=1$ (constante)", zorder=1)
-    axE.set_ylim(0, 1.15)
-    axE.set_ylabel(r"eficiencia débil $E_w(p)=S_{esc}(p)/p$")
-    axE.set_title("Débil: eficiencia, Beta 3")
-    for ax in (axS, axE):
-        sticks(ax, sorted(S_W)); ax.set_xlabel("procesos $p$")
-    axS.legend(loc="upper left"); axE.legend(loc="upper right")
-    save(fig, "k7_debil")
 
 # =========================================================================
 # Tabla LaTeX (Beta 3, strong, N máximo) y JSON de ajustes

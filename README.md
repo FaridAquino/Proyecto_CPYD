@@ -109,7 +109,7 @@ Los resultados y figuras de Khipu se guardan aparte de los de la laptop, en dos 
 | Carpeta | Qué crece | Experimentos |
 |---|---|---|
 | `results/khipu/aumento_train/` → `figures/khipu/aumento_train/` | el **entrenamiento** (N, split 80/20) | `versions`, `strong` (N = 50k/100k/200k), `weak-work`, `weak-lin` |
-| `results/khipu/aumento_test/` → `figures/khipu/aumento_test/` | el **test** (n_train = 50k fijo) | `strong-test` (m = 10k/20k/40k), `weak-test` (m = 10k·p) |
+| `results/khipu/aumento_test/` → `figures/khipu/aumento_test/` | el **test** (n_train = 50k fijo) | `strong-test` (m = 50k/100k/200k); `weak-test` (m = 10k·p) opcional con `TEST_EXPS` |
 
 En `aumento_test` el train es `data/digits_N50000.npz` completo y el test se genera aparte
 (`data/digits_test_M<m>.npz`, otra semilla). Como n es fijo, W = 3·m·n·d crece linealmente con m,
@@ -124,8 +124,8 @@ pip install --no-binary=mpi4py mpi4py            # compilado contra el MPI del m
 sbatch --ntasks=4 --time=00:10:00 run_khipu.sh   # prueba rápida
 MODE=full sbatch run_khipu.sh                    # aumento de train + comm_bench
 MODE=test sbatch run_khipu.sh                    # aumento de test (n_train = 50k fijo)
-python src/generate_plots_khipu.py               # figures/khipu/aumento_train/k2–k7, k9 (.png)
-python src/generate_plots_khipu.py --modo test   # figures/khipu/aumento_test/k2–k7 (.png)
+python src/generate_plots_khipu.py               # figures/khipu/aumento_train/k2–k6, k9 (.png)
+python src/generate_plots_khipu.py --modo test   # figures/khipu/aumento_test/k2–k6 (.png)
 ```
 
 `pin_bench.py` y `cpu_topology.py` (afinidad P/E-cores) son específicos de la laptop con Windows y

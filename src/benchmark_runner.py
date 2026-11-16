@@ -12,7 +12,7 @@ Experimentos (todos escriben en un único CSV consolidado, una fila por repetici
              W/s = cte  =>  N^2/s = cte  =>  N = N0 * sqrt(s).
 
 Experimentos "aumento de test" (n_train FIJO, crece m_test; datos de test aparte):
-  strong-test  m fijo en --M (por defecto 10k, 20k, 40k), s in S. Beta 3 y DAG.
+  strong-test  m fijo en --M (por defecto 50k, 100k, 200k), s in S. Beta 3 y DAG.
   weak-test    m = M0 * s. Como n es fijo, W = 3 m n d es lineal en m, así que
                W/s = cte (no hace falta la variante con sqrt).
   El train es data/digits_N<n_train>.npz completo (semilla 42) y el test
@@ -290,7 +290,7 @@ def main():
     ap.add_argument("--N0-work", type=int, default=50000, help="N con s=1 (weak-work)")
     ap.add_argument("--n-train", type=int, default=50000,
                     help="n_train fijo en strong-test / weak-test")
-    ap.add_argument("--M", type=int, nargs="+", default=[10000, 20000, 40000],
+    ap.add_argument("--M", type=int, nargs="+", default=[50000, 100000, 200000],
                     help="tamaños de test m para strong-test")
     ap.add_argument("--M0-test", type=int, default=10000, help="m por proceso (weak-test)")
     ap.add_argument("--reps", type=int, default=3)

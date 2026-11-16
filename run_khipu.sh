@@ -27,7 +27,8 @@
 #   REPS           repeticiones por configuración
 #   N0_LIN         N por proceso en weak-lin (bajar si falta memoria)
 #   N_TRAIN        n_train fijo en MODE=test (por defecto 50000)
-#   M_LIST         tamaños de test para strong-test (por defecto "10000 20000 40000")
+#   M_LIST         tamaños de test para strong-test (por defecto "50000 100000 200000")
+#   TEST_EXPS      experimentos de MODE=test (por defecto "strong-test"; añadir weak-test si se quiere)
 #   M0_TEST        m por proceso en weak-test (por defecto 10000)
 set -eo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")}"
@@ -57,7 +58,8 @@ EXPS=${EXPS:-"versions strong weak-lin weak-work"}
 REPS=${REPS:-3}
 N0_LIN=${N0_LIN:-10000}
 N_TRAIN=${N_TRAIN:-50000}
-M_LIST=${M_LIST:-"10000 20000 40000"}
+M_LIST=${M_LIST:-"50000 100000 200000"}
+TEST_EXPS=${TEST_EXPS:-"strong-test"}
 M0_TEST=${M0_TEST:-10000}
 
 echo "[khipu] job=${SLURM_JOB_ID:-local} nodos=${SLURM_JOB_NODELIST:-?} ntasks=${SLURM_NTASKS:-?} modo=$MODE"
@@ -76,7 +78,9 @@ case "$MODE" in
         python -u src/extra_benchmarks.py --exp comm --out "$OUT" --s $S_LIST
         ;;
     test)
-        python -u src/benchmark_runner.py --out "$OUT_TEST" --exp strong-test weak-test                --s $S_LIST --n-train "$N_TRAIN" --M $M_LIST --M0-test "$M0_TEST"                --reps "$REPS"
+        python -u src/benchmark_runner.py --out "$OUT_TEST" --exp $TEST_EXPS \
+               --s $S_LIST --n-train "$N_TRAIN" --M $M_LIST --M0-test "$M0_TEST" \
+               --reps "$REPS"
         ;;
     *)
         echo "MODE desconocido: $MODE (use quick | full | comm | test)"; exit 1
