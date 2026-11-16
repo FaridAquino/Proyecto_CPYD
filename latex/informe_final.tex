@@ -4,7 +4,7 @@
 % Compilar: pdflatex -> biber -> pdflatex -> pdflatex
 % Estructura de carpetas esperada:
 %   latex/informe_final.tex, latex/algoritmos_pram.tex, latex/refs.bib
-%   figures/*.pdf     (generadas por src/generate_plots.py)
+%   figures/*.png     (generadas por src/generate_plots.py)
 % ============================================================================
 \documentclass[11pt,a4paper]{article}
 
@@ -402,7 +402,7 @@ DAG & 8 & 0.0014 & 1014.1 & 0.9833 & 100\,\% = sklearn\\
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.62\textwidth]{f1_versiones.pdf}
+\includegraphics[width=0.62\textwidth]{f1_versiones.png}
 \caption{Tiempo total por versión y número de procesos sobre \texttt{load\_digits}.}
 \label{fig:versiones}
 \end{figure}
@@ -418,7 +418,7 @@ con $s=8$.
 \subsection{Tiempos de ejecución, cómputo y comunicación}
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{f2_tiempos.pdf}
+\includegraphics[width=\textwidth]{f2_tiempos.png}
 \caption{$\Ttot$, $\Tcomp$ y $\Tcomm$ frente a $s$ con $N=200\,000$ ($\ntr=160\,000$,
 $\mte=40\,000$). Las bandas sombreadas indican las regiones de hardware: hasta 8 procesos caben en
 P-cores físicos; de 8 a 16 se incorporan E-cores; por encima de 16 se usan hilos SMT.}
@@ -493,7 +493,7 @@ $c=\alpha+M\beta$:
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{f6_modelo.pdf}
+\includegraphics[width=\textwidth]{f6_modelo.png}
 \caption{Curvas teóricas normalizadas (Ec.~\ref{eq:norm}) frente a los datos experimentales de la
 Beta~3. El triángulo marca $s^*$ del modelo lineal (Ec.~\ref{eq:sstar-lineal}).}
 \label{fig:modelo}
@@ -548,7 +548,7 @@ Modelo de $\Tcomm$ & $N$ & $k_1$ [s/FLOP] & $k_2$ & Error rel.\ medio & $s^*$\\
 \subsection{Speedup y Ley de Amdahl (escalabilidad fuerte)}
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{f3_speedup.pdf}
+\includegraphics[width=\textwidth]{f3_speedup.png}
 \caption{Speedup experimental $S(s)=T_1/T_p(s)$ para tres tamaños, frente al ideal lineal y a la
 Ley de Amdahl ajustada en todo el rango y sólo en la región de P-cores ($s\le8$).}
 \label{fig:speedup}
@@ -592,7 +592,7 @@ relativo disminuiría con $N$ según la Ec.~\eqref{eq:tp}.
 \subsection{Eficiencia}
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.62\textwidth]{f4_eficiencia.pdf}
+\includegraphics[width=0.62\textwidth]{f4_eficiencia.png}
 \caption{Eficiencia $E(s)=S(s)/s$ de la Beta~3 y predicción de la Ley de Amdahl.}
 \label{fig:eficiencia}
 \end{figure}
@@ -604,7 +604,7 @@ aporta menos del 2\,\% de rendimiento.
 \subsection{Rendimiento en FLOP/s}
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.62\textwidth]{f5_gflops.pdf}
+\includegraphics[width=0.62\textwidth]{f5_gflops.png}
 \caption{GFLOP/s de la región paralelizable (Ec.~\ref{eq:flops}) frente a $s$, con el ideal
 lineal de un P-core y el techo medido con afinidad explícita.}
 \label{fig:gflops}
@@ -618,7 +618,7 @@ compartido a memoria, no por el tamaño del problema.
 \subsection{Escalabilidad débil y Ley de Gustafson}
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{f7_debil.pdf}
+\includegraphics[width=\textwidth]{f7_debil.png}
 \caption{Speedup escalado frente a la Ley de Gustafson. Izquierda: trabajo por proceso constante.
 Derecha: $N/s$ constante.}
 \label{fig:debil}
@@ -674,7 +674,7 @@ limitante es el hardware compartido, no el algoritmo.
 \label{sec:comm}
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{f9_comunicacion.pdf}
+\includegraphics[width=\textwidth]{f9_comunicacion.png}
 \caption{Tiempo de \texttt{Bcast} y \texttt{Gather} de un mensaje de 64\,MiB sin cómputo, frente a
 los modelos en árbol binario y lineal ajustados con todos los tamaños de mensaje (1\,KiB--64\,MiB).}
 \label{fig:comm}
@@ -729,7 +729,7 @@ En el KNN, el \texttt{Bcast} de $\Xtr$ con $N=200$k (83\,MB) cuesta $0.15$\,s co
 \label{sec:hw}
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{f8_pinning.pdf}
+\includegraphics[width=\textwidth]{f8_pinning.png}
 \caption{Rendimiento con la misma carga por proceso ($1024$ consultas $\times$ $160\,000$ puntos)
 y afinidad explícita a P-cores, E-cores o hilos SMT. Izquierda: GFLOP/s agregados.
 Derecha: GFLOP/s por proceso al aumentar los núcleos activos del mismo tipo.}

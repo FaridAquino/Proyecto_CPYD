@@ -3,7 +3,7 @@ generate_plots.py -- Análisis científico y gráficos (Fase 4, CS4052 Proyecto 
 
 Entradas (results/): results.csv, comm_bench.csv, pinning.csv
 Salidas:
-  figures/*.pdf (+ .png)       figuras para el informe (estilo IEEE, serif)
+  figures/*.png                figuras para el informe (estilo IEEE, serif; sólo PNG)
   results/model_fit.json       constantes ajustadas (alpha, beta, k1, k2, f, sigma, kappa, s*)
   results/tables.tex           tablas booktabs listas para \\input
 
@@ -53,7 +53,6 @@ plt.rcParams.update({
     # muestran como ¡ (menos), ® (alpha), ¯ (beta) o □ (asterisco).
     "font.family": "serif", "font.serif": ["STIXGeneral", "DejaVu Serif"],
     "mathtext.fontset": "stix",
-    "pdf.fonttype": 42, "ps.fonttype": 42,          # TrueType incrustada (no Type 3)
     "axes.unicode_minus": True, "axes.titlepad": 12,
     "font.size": 8, "axes.titlesize": 8.5,
     "axes.labelsize": 8, "legend.fontsize": 7, "xtick.labelsize": 7,
@@ -73,10 +72,9 @@ S_LABELED = [1, 4, 8, 12, 16, 20, 24]     # el 2 queda como marca menor (evita c
 
 def save(fig, name):
     fig.tight_layout(pad=1.5)
-    fig.savefig(os.path.join(FIG, name + ".pdf"))
     fig.savefig(os.path.join(FIG, name + ".png"), dpi=300)
     plt.close(fig)
-    print(f"  figures/{name}.pdf")
+    print(f"  figures/{name}.png")
 
 
 def hw_bands(ax):
