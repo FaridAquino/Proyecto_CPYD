@@ -52,7 +52,7 @@ DAG del enunciado (`Scatterv` de entrenamiento, `Bcast` de consultas, fusión de
 │   ├── cpu_topology.py               topología P/E del procesador (Windows)
 │   └── generate_plots.py             ajustes, figuras f1–f9 y tablas
 ├── results/                          mediciones (CSV), ajustes (JSON) y tablas LaTeX
-├── figures/                          f1–f9 en PDF (vectorial) y PNG
+├── figures/                          f1–f9 en PNG (+ khipu/aumento_train, khipu/aumento_test)
 └── latex/                            informe_final.tex, algoritmos_pram.tex, refs.bib, PDF
 ```
 
@@ -104,8 +104,16 @@ aplicaciones abiertas.
 
 ### 4b. Ejecución en Khipu (clúster UTEC, SLURM)
 
-Los resultados y figuras de Khipu se guardan aparte (`results/khipu/`, `figures/khipu/`) y no se
-mezclan con los de la laptop.
+Los resultados y figuras de Khipu se guardan aparte de los de la laptop, en dos experimentos:
+
+| Carpeta | Qué crece | Experimentos |
+|---|---|---|
+| `results/khipu/aumento_train/` → `figures/khipu/aumento_train/` | el **entrenamiento** (N, split 80/20) | `versions`, `strong` (N = 50k/100k/200k), `weak-work`, `weak-lin` |
+| `results/khipu/aumento_test/` → `figures/khipu/aumento_test/` | el **test** (n_train = 50k fijo) | `strong-test` (m = 10k/20k/40k), `weak-test` (m = 10k·p) |
+
+En `aumento_test` el train es `data/digits_N50000.npz` completo y el test se genera aparte
+(`data/digits_test_M<m>.npz`, otra semilla). Como n es fijo, W = 3·m·n·d crece linealmente con m,
+así que `weak-test` (m = m₀·p) ya mantiene constante el trabajo por proceso.
 
 ```bash
 module load <compilador> <mpi> <python>          # ver `module avail`
@@ -114,8 +122,10 @@ pip install -r requirements-khipu.txt
 pip install --no-binary=mpi4py mpi4py            # compilado contra el MPI del módulo
 
 sbatch --ntasks=4 --time=00:10:00 run_khipu.sh   # prueba rápida
-MODE=full sbatch run_khipu.sh                    # campaña completa + comm_bench
-python src/generate_plots_khipu.py               # figures/khipu/k2–k5 (.png)
+MODE=full sbatch run_khipu.sh                    # aumento de train + comm_bench
+MODE=test sbatch run_khipu.sh                    # aumento de test (n_train = 50k fijo)
+python src/generate_plots_khipu.py               # figures/khipu/aumento_train/k2–k7, k9 (.png)
+python src/generate_plots_khipu.py --modo test   # figures/khipu/aumento_test/k2–k7 (.png)
 ```
 
 `pin_bench.py` y `cpu_topology.py` (afinidad P/E-cores) son específicos de la laptop con Windows y
