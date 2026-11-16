@@ -11,6 +11,13 @@ Experimentos (todos escriben en un único CSV consolidado, una fila por repetici
   weak-work  Escalabilidad débil con trabajo por proceso constante (Gustafson):
              W/s = cte  =>  N^2/s = cte  =>  N = N0 * sqrt(s).
 
+Experimentos "aumento de test" (n_train FIJO, crece m_test; datos de test aparte):
+  strong-test  m fijo en --M (por defecto 10k, 20k, 40k), s in S. Beta 3 y DAG.
+  weak-test    m = M0 * s. Como n es fijo, W = 3 m n d es lineal en m, así que
+               W/s = cte (no hace falta la variante con sqrt).
+  El train es data/digits_N<n_train>.npz completo (semilla 42) y el test
+  data/digits_test_M<m>.npz (semilla 43): misma distribución, muestras distintas.
+
 El runner es reanudable: omite combinaciones (version, tag, s, N) que ya tienen
 las repeticiones pedidas en el CSV. Fija OMP/MKL/OPENBLAS_NUM_THREADS=1 para que
 cada proceso MPI use un solo núcleo, y guarda la información del sistema.
@@ -19,6 +26,7 @@ Uso:
   python benchmark_runner.py --quick                     # prueba rápida (~2 min)
   python benchmark_runner.py                             # campaña completa
   python benchmark_runner.py --exp strong --N 200000 --reps 5
+  python benchmark_runner.py --exp strong-test weak-test --out results/khipu/aumento_test
 """
 import argparse
 import csv
@@ -89,14 +97,15 @@ def child_env():
     return env
 
 
-def dataset_path(N):
-    """Devuelve la ruta del .npz de tamaño N, generándolo si no existe."""
-    path = os.path.join(DATA, f"digits_N{N}.npz")
+def dataset_path(N, test=False):
+    """Ruta del .npz de tamaño N (train: semilla 42; test: semilla 43), generándolo si falta."""
+    name = f"digits_test_M{N}.npz" if test else f"digits_N{N}.npz"
+    path = os.path.join(DATA, name)
     if not os.path.exists(path):
         sys.path.insert(0, HERE)
         from data_generator import generate
         os.makedirs(DATA, exist_ok=True)
-        X, y = generate(N, seed=42)
+        X, y = generate(N, seed=43 if test else 42)
         np.savez_compressed(path, X=X, y=y)
         print(f"  [gen] {path}")
     return path
@@ -186,7 +195,7 @@ def exp_versions(mpiexec, csv_path, reps, s_list, timeout):
 # Experimentos con scripts que escriben CSV directamente (v3, dag)
 # ----------------------------------------------------------------------------
 def run_csv_script(mpiexec, script, version, tag, s, data, N, reps, csv_path,
-                   have, timeout):
+                   have, timeout, test_data=None):
     missing = reps - have.get((version, tag, s, N), 0)
     if missing <= 0:
         return
@@ -194,6 +203,8 @@ def run_csv_script(mpiexec, script, version, tag, s, data, N, reps, csv_path,
            "--csv", csv_path, "--tag", tag]
     if data:
         cmd += ["--data", data]
+    if test_data:
+        cmd += ["--test-data", test_data]
     out, wall = run(cmd, timeout)
     last = [l for l in out.splitlines() if l.startswith(f"[{version}]")][-1]
     print(f"  {version:3s} {tag:9s} s={s:2d} N={N:>7d}  ({wall:6.1f}s)  {last.split('rep=')[1]}")
@@ -215,6 +226,23 @@ def exp_scaling(mpiexec, csv_path, kind, versions, s_list, N_values, N0, reps, t
         for v in versions:
             run_csv_script(mpiexec, scripts[v], v, tag, s, data, N, reps,
                            csv_path, have, timeout)
+
+
+def exp_test(mpiexec, csv_path, kind, versions, s_list, M_values, M0, n_train, reps, timeout):
+    """Aumento de test: train fijo (n_train) y m_test creciente (strong-test / weak-test)."""
+    have = done_reps(csv_path)
+    scripts = {"v3": "knn_mpi_v3_optimized.py", "dag": "knn_mpi_dag.py"}
+    if kind == "strong-test":
+        jobs = [(s, m) for m in M_values for s in s_list]
+    else:                                                  # weak-test
+        jobs = [(s, M0 * s) for s in s_list]
+    train = dataset_path(n_train)
+    for s, m in jobs:
+        test = dataset_path(m, test=True)
+        for v in versions:
+            # N = n_train + m identifica la configuración en el CSV (n_train es fijo).
+            run_csv_script(mpiexec, scripts[v], v, kind, s, train, n_train + m, reps,
+                           csv_path, have, timeout, test_data=test)
 
 
 # ----------------------------------------------------------------------------
@@ -251,7 +279,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--exp", nargs="+",
                     default=["versions", "strong", "weak-lin", "weak-work"],
-                    choices=["versions", "strong", "weak-lin", "weak-work"])
+                    choices=["versions", "strong", "weak-lin", "weak-work",
+                             "strong-test", "weak-test"])
     ap.add_argument("--versions", nargs="+", default=["v3", "dag"],
                     choices=["v3", "dag"])
     ap.add_argument("--s", type=int, nargs="+", default=S_FULL)
@@ -259,6 +288,11 @@ def main():
                     help="tamaños para escalabilidad fuerte")
     ap.add_argument("--N0-lin", type=int, default=10000, help="N por proceso (weak-lin)")
     ap.add_argument("--N0-work", type=int, default=50000, help="N con s=1 (weak-work)")
+    ap.add_argument("--n-train", type=int, default=50000,
+                    help="n_train fijo en strong-test / weak-test")
+    ap.add_argument("--M", type=int, nargs="+", default=[10000, 20000, 40000],
+                    help="tamaños de test m para strong-test")
+    ap.add_argument("--M0-test", type=int, default=10000, help="m por proceso (weak-test)")
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--out", default=RESULTS,
                     help="carpeta de resultados (p. ej. results/khipu)")
@@ -272,6 +306,7 @@ def main():
     if args.quick:
         args.s, args.N, args.reps = [1, 2, 4], [20000], 1
         args.N0_lin, args.N0_work = 5000, 10000
+        args.n_train, args.M, args.M0_test = 10000, [1000, 2000], 1000
         args.csv = os.path.join(out_dir, "results_quick.csv")
     # Ruta absoluta: los scripts hijos se ejecutan con cwd = src/.
     args.csv = os.path.abspath(args.csv or os.path.join(out_dir, "results.csv"))
@@ -291,6 +326,9 @@ def main():
         if exp == "versions":
             exp_versions(mpiexec, args.csv, args.reps, [s for s in args.s if s <= 8],
                          args.timeout)
+        elif exp in ("strong-test", "weak-test"):
+            exp_test(mpiexec, args.csv, exp, args.versions, args.s, args.M,
+                     args.M0_test, args.n_train, args.reps, args.timeout)
         else:
             exp_scaling(mpiexec, args.csv, exp, args.versions, args.s, args.N,
                         args.N0_lin if exp == "weak-lin" else args.N0_work,

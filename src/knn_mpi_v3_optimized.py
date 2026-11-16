@@ -141,6 +141,8 @@ def main():
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--csv", default=None, help="CSV de salida (append)")
     ap.add_argument("--tag", default="", help="etiqueta del experimento")
+    ap.add_argument("--test-data", default=None,
+                    help=".npz de consultas: si se da, --data es TODO el train y este TODO el test")
     ap.add_argument("--validate", action="store_true",
                     help="comparar contra sklearn KNeighborsClassifier")
     args = ap.parse_args()
@@ -149,14 +151,18 @@ def main():
     rank, size = comm.Get_rank(), comm.Get_size()
 
     if rank == 0:
-        X, y = load_dataset(args.data)
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42)
+        if args.test_data:                     # experimento "aumento de test"
+            X_train, y_train = load_dataset(args.data)
+            X_test, y_test = load_dataset(args.test_data)
+        else:
+            X, y = load_dataset(args.data)
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42)
         X_train = np.ascontiguousarray(X_train)
         X_test = np.ascontiguousarray(X_test)
         y_train = np.ascontiguousarray(y_train, dtype=np.int64)
         meta = (X_train.shape[0], X_test.shape[0], X_train.shape[1])
-        N = X.shape[0]
+        N = X_train.shape[0] + X_test.shape[0]
     else:
         X_train = y_train = X_test = y_test = None
         meta = N = None
