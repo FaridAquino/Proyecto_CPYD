@@ -12,8 +12,9 @@
 #   MODE=full sbatch run_khipu.sh                       # campaña completa
 #   MODE=comm sbatch run_khipu.sh                       # sólo alpha/beta
 #   MODE=test sbatch run_khipu.sh                       # aumento de test (n_train fijo)
+#   MODE=train sbatch run_khipu.sh                      # aumento de train (m_test fijo)
 #
-# Resultados: MODE=quick|full|comm -> results/khipu/aumento_train
+# Resultados: MODE=quick|full|comm|train -> results/khipu/aumento_train
 #             MODE=test            -> results/khipu/aumento_test
 #
 # Las opciones de la línea de comandos de sbatch (--ntasks, --time, --partition,
@@ -30,6 +31,8 @@
 #   M_LIST         tamaños de test para strong-test (por defecto "50000 100000 200000")
 #   TEST_EXPS      experimentos de MODE=test (por defecto "strong-test"; añadir weak-test si se quiere)
 #   M0_TEST        m por proceso en weak-test (por defecto 10000)
+#   NTRAIN_LIST    tamaños de train para MODE=train (por defecto "50000 100000 200000")
+#   M_TEST         m fijo en MODE=train (por defecto 50000)
 set -eo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")}"
 
@@ -61,6 +64,8 @@ N_TRAIN=${N_TRAIN:-50000}
 M_LIST=${M_LIST:-"50000 100000 200000"}
 TEST_EXPS=${TEST_EXPS:-"strong-test"}
 M0_TEST=${M0_TEST:-10000}
+NTRAIN_LIST=${NTRAIN_LIST:-"50000 100000 200000"}
+M_TEST=${M_TEST:-50000}
 
 echo "[khipu] job=${SLURM_JOB_ID:-local} nodos=${SLURM_JOB_NODELIST:-?} ntasks=${SLURM_NTASKS:-?} modo=$MODE"
 echo "[khipu] python=$(which python)  mpiexec=$(which mpiexec 2>/dev/null || which mpirun)"
@@ -82,8 +87,12 @@ case "$MODE" in
                --s $S_LIST --n-train "$N_TRAIN" --M $M_LIST --M0-test "$M0_TEST" \
                --reps "$REPS"
         ;;
+    train)
+        python -u src/benchmark_runner.py --out "$OUT" --exp strong-train \
+               --s $S_LIST --N-train $NTRAIN_LIST --m-test "$M_TEST" --reps "$REPS"
+        ;;
     *)
-        echo "MODE desconocido: $MODE (use quick | full | comm | test)"; exit 1
+        echo "MODE desconocido: $MODE (use quick | full | comm | test | train)"; exit 1
         ;;
 esac
 echo "[khipu] terminado: $(date)"

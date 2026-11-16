@@ -5,9 +5,11 @@ Independiente de generate_plots.py (laptop i7-14650HX): no usa pinning.csv ni la
 franjas P-cores/E-cores/SMT, y toma los valores de s directamente de los datos.
 
 Dos modos (--modo), cada uno con su carpeta de resultados y de figuras:
-  train  (por defecto) aumenta el ENTRENAMIENTO: N crece, split 80/20.
+  train  (por defecto) aumenta el ENTRENAMIENTO: m_test = 50k fijo y n_train crece
+         (tag strong-train). Si aún no hay esas filas usa el tag 'strong' antiguo
+         (split 80/20, donde m crece con N).
          results/khipu/aumento_train/ -> figures/khipu/aumento_train/
-         tags: versions, strong, weak-work, weak-lin; tamaño de la serie = N.
+         tags: versions, strong-train (o strong); tamaño de la serie = n (o N).
   test   aumenta el TEST: n_train = 50k fijo y m_test crece.
          results/khipu/aumento_test/  -> figures/khipu/aumento_test/
          tags: strong-test, weak-test; tamaño de la serie = m.
@@ -15,21 +17,23 @@ Dos modos (--modo), cada uno con su carpeta de resultados y de figuras:
 Entradas  results.csv; comm_bench.csv (k6 y k9). En modo test, si la carpeta no
           tiene comm_bench.csv se usa el de aumento_train (--comm): la
           comunicación no depende del dataset.
-Salidas   k2_tiempos, k3_speedup, k4_eficiencia, k5_gflops, k6_modelo,
+Salidas   k2_tiempos, k3_speedup, k4_eficiencia, k5_gflops, k6_modelo, k8_comunicacion,
           k9_comunicacion (sólo modo train) (.png, nunca .pdf);
           model_fit.json y tables.tex en la carpeta de resultados.
 
 Todas las figuras usan el número de procesos p en el eje x (la columna del CSV se
-sigue llamando 's'). Sólo K4 compara Beta 3 con la variante DAG.
-k3: "Speedup" de la Beta 3, una recta por tamaño fijo (N o m).
+sigue llamando 's'). k2-k5 comparan Beta 3 con DAG; la leyenda indica
+el modelo y los tamaños fijos de train (n) y test (m) de cada recta.
+k3: "Speedup", Beta 3 vs DAG, una recta por tamaño fijo.
 k2 y k5 tienen hasta dos paneles (se omite el que no tenga datos):
   (a) versiones sobre load_digits (tag 'versions'): Beta 1, Beta 2 y Beta 3
       (+ el secuencial original en la de tiempos). Sólo llega a p = 8: el runner
       limita este experimento a s <= 8 (benchmark_runner.py) porque load_digits
       tiene m = 360 consultas; con p = 32 cada proceso recibiría ~11 y el tiempo
       (~ms) quedaría dominado por el arranque/latencia de MPI, no por el cómputo;
-  (b) escalabilidad fuerte de la Beta 3, una serie por tamaño, p <= 32.
-k4: "Eficiencia" (strong), Beta 3 vs DAG: una recta por tamaño fijo (N o m).
+  (b) escalabilidad fuerte, Beta 3 vs DAG, una recta por tamaño, p <= 32.
+k4: "Eficiencia", Beta 3 vs DAG, una recta por tamaño fijo.
+k8: comunicación medida, Beta 3 vs DAG: T_comm [s] y T_comm/T_total [%].
 k6: modelo T_p(p) = k1 W/p + k2 T_comm(p) ajustado a la Beta 3 (strong) y p* óptimo.
 Escalabilidad débil: no se grafica; E_w(p) se guarda en model_fit.json ("weak").
 k9: microbenchmark de MPI_Bcast / MPI_Gather -> alpha, beta.
@@ -130,7 +134,12 @@ fit = dict(hosts=hosts, modo=MODO)
 # Configuración por modo: tag del strong, columna que da el tamaño de la serie,
 # símbolo en las leyendas y experimentos de escalabilidad débil.
 if MODO == "train":
-    TAG_STRONG, SIZE, SYM = "strong", "N", "N"
+    if (MED.tag == "strong-train").any():           # m fijo, n creciente (diseño actual)
+        TAG_STRONG, SIZE, SYM = "strong-train", "n_train", "n"
+    else:                                            # split 80/20: n y m crecen juntos
+        TAG_STRONG, SIZE, SYM = "strong", "N", "N"
+        print("  [aviso] sin filas 'strong-train' (m fijo): se usa 'strong' (split 80/20,"
+              " m cambia con N). Corra MODE=train en Khipu.")
     WEAK_TAGS = [("weak-work", r"$N=N_0\sqrt{p}$"), ("weak-lin", r"$N=N_0\,p$")]
 else:
     TAG_STRONG, SIZE, SYM = "strong-test", "m_test", "m"
@@ -201,7 +210,6 @@ def panels(name, draw_a, draw_b, height=2.6, **kw):
 
 
 T_DIGITS = "load_digits ($n$=1437, $m$=360, $p\\leq 8$)"
-T_STRONG = "Beta 3, strong scaling" + ("" if MODO == "train" else ", $n$=50k fijo")
 
 # =========================================================================
 # Ajustes: speedup por versión (load_digits) y Amdahl de la Beta 3 (strong)
@@ -258,6 +266,51 @@ def sp(key):
     return fit["speedup"].get(key)
 
 
+# Estilo común de las figuras de strong scaling (k2-k5): Beta 3 vs DAG.
+#   color = tamaño; Beta 3 = línea continua y círculo lleno, DAG = discontinua y cuadrado vacío
+VSTYLE = {"v3": ("o", "-"), "dag": ("s", "--")}
+COLORS = [C["blue"], C["orange"], C["green"], C["pink"]]
+
+
+def nm_label(N):
+    """'n=40k, m=10k': tamaños fijos de train y test de la serie N."""
+    d = strong(N)
+    return f"$n$={kfmt(int(d.n_train.iloc[0]))}, $m$={kfmt(int(d.m_test.iloc[0]))}"
+
+
+def strong_lines(ax, getter, legend=True):
+    """Dibuja Beta 3 y DAG para cada tamaño; getter(v, N) -> (p, y) o None."""
+    pv, ymax = set(), 0.0
+    for v, vlab in VERS:
+        mk, ls = VSTYLE[v]
+        for N, col in zip(N_STRONG, COLORS):
+            xy = getter(v, N)
+            if xy is None:
+                continue
+            x, y = list(xy[0]), list(xy[1])
+            ax.plot(x, y, color=col, marker=mk, ls=ls, label=f"{vlab}, {nm_label(N)}",
+                    mfc=col if v == "v3" else "white")
+            pv |= set(int(i) for i in x); ymax = max(ymax, float(np.nanmax(y)))
+    sticks(ax, sorted(pv))
+    if legend:
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=2)
+    return ymax
+
+
+def from_sp(field):
+    def get(v, N):
+        q = sp(skey(v, N))
+        return (q["s"], q[field]) if q else None
+    return get
+
+
+def from_strong(col):
+    def get(v, N):
+        d = strong(N, v)
+        return (d.s, d[col]) if len(d) else None
+    return get
+
+
 # =========================================================================
 # k2: tiempos
 # =========================================================================
@@ -274,67 +327,45 @@ def tiempos_a(ax):
 
 
 def tiempos_b(ax):
-    for N, (col, mk, ls) in zip(N_STRONG, SERIES):
-        d = strong(N)
-        ax.plot(d.s, d.T_total, color=col, marker=mk, ls=ls, label=nlab(N))
-    ax.set_yscale("log"); sticks(ax, S_STRONG)
+    strong_lines(ax, from_strong("T_total"))
+    ax.set_yscale("log")
     ax.set_ylabel(r"$T_{\mathrm{total}}$ [s] (log)")
-    ax.set_title(f"Tiempo: {T_STRONG}")
-    ax.legend(loc="upper right", ncol=len(N_STRONG))
+    ax.set_title("Tiempo")
 
 
-panels("k2_tiempos", tiempos_a, tiempos_b)
+panels("k2_tiempos", tiempos_a, tiempos_b, height=3.2)
 
 
 # =========================================================================
-# k3: speedup de la Beta 3 (strong scaling), una recta por tamaño fijo (N o m)
+# k3: speedup (strong scaling), Beta 3 vs DAG, una recta por tamaño fijo
 #   (el ajuste de Amdahl se sigue guardando en model_fit.json, no se dibuja)
 # =========================================================================
 if not N_STRONG:
     skip("k3_speedup", "no hay datos de strong scaling")
 else:
-    fig, ax = plt.subplots(figsize=(W1, 2.6))
-    top_s, top_S = max(S_STRONG), 1.0
-    for N, (col, mk, ls) in zip(N_STRONG, SERIES):
-        q = sp(skey("v3", N))
-        if q:
-            ax.plot(q["s"], q["S"], color=col, marker=mk, ls=ls, label=nlab(N))
-            top_S = max(top_S, max(q["S"]))
+    fig, ax = plt.subplots(figsize=(W1 + 0.4, 3.2))
+    top_s = max(S_STRONG)
+    smax = strong_lines(ax, from_sp("S"))
     ax.plot([1, top_s], [1, top_s], color=C["light"], lw=1, zorder=1)     # ideal S = p
-    ax.set_ylim(0, min(top_s, top_S * 2.0) * 1.05); sticks(ax, S_STRONG)
+    ax.set_ylim(0, min(top_s, smax * 1.6) * 1.05)
     ax.set_xlabel("procesos $p$"); ax.set_ylabel("speedup")
     ax.set_title("Speedup")
-    ax.legend(loc="upper left")
     save(fig, "k3_speedup")
 
 
 # =========================================================================
-# k4: eficiencia, Beta 3 vs DAG (strong scaling: cada recta tiene N o m fijo)
-#   color = tamaño; Beta 3 = línea continua y círculo, DAG = discontinua y cuadrado
+# k4: eficiencia (strong scaling), Beta 3 vs DAG, una recta por tamaño fijo
 # =========================================================================
-VSTYLE = {"v3": ("o", "-"), "dag": ("s", "--")}
-COLORS = [C["blue"], C["orange"], C["green"], C["pink"]]
-
 if not N_STRONG:
     skip("k4_eficiencia", "no hay datos de strong scaling")
 else:
-    fig, ax = plt.subplots(figsize=(W1 + 0.4, 3.0))
-    pv, emax = set(), 1.0
-    fijo = "" if MODO == "train" else "$n$=50k, "      # modo test: el train también es fijo
-    for v, vlab in VERS:
-        mk, ls = VSTYLE[v]
-        for N, col in zip(N_STRONG, COLORS):
-            q = sp(skey(v, N))
-            if q:
-                ax.plot(q["s"], q["E"], color=col, marker=mk, ls=ls,
-                        label=f"{vlab}, {fijo}{nlab(N)}", mfc=col if v == "v3" else "white")
-                pv |= set(q["s"]); emax = max(emax, max(q["E"]))
+    fig, ax = plt.subplots(figsize=(W1 + 0.4, 3.2))
+    emax = max(1.0, strong_lines(ax, from_sp("E")))
     ax.axhline(1, color=C["light"], lw=1, zorder=1)
-    ax.set_ylim(0, emax * 1.08); sticks(ax, sorted(pv))
+    ax.set_ylim(0, emax * 1.08)
     ax.set_xlabel("procesos $p$")
     ax.set_ylabel("eficiencia $E(p)=S(p)/p$")
     ax.set_title("Eficiencia")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=2)
     save(fig, "k4_eficiencia")
 
 
@@ -355,24 +386,43 @@ def gflops_a(ax):
 
 
 def gflops_b(ax):
-    d1 = strong(NMAX)
-    if int(d1.s.iloc[0]) == 1:
-        g1 = float(d1.gflops.iloc[0])
-        ax.plot([1, d1.s.max()], [g1, g1 * d1.s.max()], color=C["light"], lw=1,
-                label=f"ideal: {g1:.1f}·$p$", zorder=1)
-    gmax = 0.0
-    for N, (col, mk, ls) in zip(N_STRONG, SERIES):
-        d = strong(N)
-        ax.plot(d.s, d.gflops, color=col, marker=mk, ls=ls, label=nlab(N))
-        gmax = max(gmax, float(d.gflops.max()))
+    gmax = strong_lines(ax, from_strong("gflops"))
     fit["gflops_max"] = gmax
-    ax.set_ylim(0, gmax * 1.35); sticks(ax, S_STRONG)
+    ax.set_ylim(0, gmax * 1.15)
     ax.set_ylabel(r"GFLOP/s  ($3mnd\,/\,T_{\mathrm{comp}}$)")
-    ax.set_title(f"GFLOP/s: {T_STRONG}")
-    ax.legend(loc="upper left", ncol=2)
+    ax.set_title("GFLOP/s")
 
 
-panels("k5_gflops", gflops_a, gflops_b)
+panels("k5_gflops", gflops_a, gflops_b, height=3.2)
+
+
+# =========================================================================
+# k8: comunicación medida (strong scaling), Beta 3 vs DAG
+#   T_comm = T_bcast + T_scatter + T_gather, cada fase = máximo entre procesos.
+#   (a) T_comm [s]   (b) T_comm / T_total [%]
+# =========================================================================
+def comm_frac(v, N):
+    d = strong(N, v)
+    return (d.s, 100 * d.T_comm / d.T_total) if len(d) else None
+
+
+if not N_STRONG:
+    skip("k8_comunicacion", "no hay datos de strong scaling")
+else:
+    fig, (axT, axF) = plt.subplots(1, 2, figsize=(W2, 2.6))
+    strong_lines(axT, from_strong("T_comm"), legend=False)
+    axT.set_yscale("log")
+    axT.set_ylabel(r"$T_{\mathrm{comm}}$ [s] (log)")
+    axT.set_title("Tiempo de comunicación")
+    fmax = strong_lines(axF, comm_frac, legend=False)
+    axF.set_ylim(0, min(100, fmax * 1.15))
+    axF.set_ylabel(r"$T_{\mathrm{comm}}\,/\,T_{\mathrm{total}}$ [%]")
+    axF.set_title("Comunicación / tiempo total")
+    for ax in (axT, axF):
+        ax.set_xlabel("procesos $p$")
+    h, l = axT.get_legend_handles_labels()
+    fig.legend(h, l, loc="upper center", bbox_to_anchor=(0.5, 0.0), ncol=2)
+    save(fig, "k8_comunicacion")
 
 # =========================================================================
 # k9: microbenchmark de comunicación -> alpha, beta
@@ -474,7 +524,7 @@ if comm and N_STRONG:
             Wn = 3 * m * n * dd
             ss = np.linspace(1, d.s.max(), 300)
             ax.plot(d.s, d.T_total, color=C["ink"], marker="o", ls="none",
-                    label="medido", zorder=3)
+                    label="Beta 3, medido", zorder=3)
             for kind, col, ls, lab in (("arbol", C["blue"], "--", r"árbol $\log_2 p$"),
                                        ("lineal", C["orange"], "-", r"lineal $(p-1)$")):
                 q = fit["normalizacion"][kind][f"N{N}"]
@@ -484,8 +534,7 @@ if comm and N_STRONG:
                         label=r"$k_1W/p+k_2T_{comm}$, " + lab + star)
             ax.set_yscale("log"); sticks(ax, d.s.astype(int).tolist())
             ax.set_xlabel("procesos $p$"); ax.set_ylabel(r"$T_p(p)$ [s] (log)")
-            ax.set_title(f"Modelo de tiempo: Beta 3, {nlab(N)}"
-                         + ("" if MODO == "train" else ", $n$=50k"))
+            ax.set_title(f"Modelo de tiempo: Beta 3, {nm_label(N)}")
             ax.legend(loc="upper right")
         save(fig, "k6_modelo")
 
