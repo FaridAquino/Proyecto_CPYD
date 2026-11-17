@@ -3,6 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=32
 #SBATCH --cpus-per-task=1
+#SBATCH --mem=64G                 # explícito: el valor por defecto de SLURM no alcanza (OOM)
 #SBATCH --time=02:00:00
 #SBATCH --output=slurm-%j.out
 #

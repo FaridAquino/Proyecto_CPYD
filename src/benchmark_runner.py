@@ -272,7 +272,8 @@ def system_info(mpiexec):
     )
     slurm = {k: v for k, v in os.environ.items()
              if k in ("SLURM_JOB_ID", "SLURM_JOB_PARTITION", "SLURM_NTASKS",
-                      "SLURM_JOB_NODELIST", "SLURM_CPUS_ON_NODE", "SLURM_MEM_PER_NODE")}
+                      "SLURM_JOB_NODELIST", "SLURM_CPUS_ON_NODE", "SLURM_MEM_PER_NODE",
+                      "SLURM_MEM_PER_CPU")}
     if slurm:
         info["slurm"] = slurm
     try:
