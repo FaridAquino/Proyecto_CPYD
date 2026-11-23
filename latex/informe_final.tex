@@ -84,6 +84,7 @@
 \end{titlepage}
 \hypersetup{pageanchor=true}
 
+\setcounter{tocdepth}{2}
 \tableofcontents
 \newpage
 
@@ -163,7 +164,8 @@ experimentalmente.
 
 \subsection{Notación y complejidad del algoritmo}
 Respecto del informe parcial se corrige la notación: el número de procesos se denota siempre $p$
-(antes se mezclaba con $s$) y el rango de un proceso siempre $i$.
+(antes se mezclaba con $s$) y el rango de un proceso siempre $i$. La Tabla~\ref{tab:notacion} reúne
+los símbolos que se usan en todo el informe.
 
 \begin{table}[H]
 \centering
@@ -191,7 +193,6 @@ $T_\infty$ & \emph{span}: longitud del camino crítico\\
 $T_s$, $T_p(p)$ & tiempo de ejecución secuencial y paralelo con $p$ procesos\\
 $\Tcomp$, $\Tcomm$ & tiempos de cómputo y de comunicación\\
 $S(p)$, $E(p)$ & \emph{speedup} y eficiencia con $p$ procesos\\
-$f_s$ & fracción serial (Ley de Amdahl)\\
 $k_1$ & constante de normalización del cómputo [s/FLOP] (Sec.~\ref{sec:normalizacion})\\
 $T_o$ & función de \emph{overhead}, $T_o=p\,T_p-W$~\cite{fiestasU62}\\
 $p^*$ & número óptimo de procesos\\
@@ -200,6 +201,11 @@ $p^*$ & número óptimo de procesos\\
 \end{table}
 
 \subsection{Pseudocódigos, secuencial y PRAM}
+Los Algoritmos~\ref{alg:dist}, \ref{alg:predict} y \ref{alg:knn-sec} transcriben el código
+secuencial de partida: la distancia euclidiana, la predicción de una consulta y el programa
+principal que recorre las $\mte$ consultas. El Algoritmo~\ref{alg:knn-pram} es su versión PRAM:
+como las consultas son independientes, el bucle sobre ellas se reemplaza por un
+\textbf{forall}~\ldots~\textbf{pardo} con un procesador por consulta.
 
 \begin{algorithm}[H]
 \caption{Distancia euclidiana}\label{alg:dist}
@@ -684,7 +690,7 @@ primero en el rango medido, porque $k/d=3/64$. La eficiencia de la variante DAG 
 
 \paragraph{Diseño del experimento.}
 Cada versión se mide sólo con su propia condición. Se define $g(p)=p\,\max(1,\log_2 p)$ (con $p=1$
-no hay sobrecarga y $g(1)=1$) y:
+no hay sobrecarga y $g(1)=1$); la Tabla~\ref{tab:iso-diseno} da los tamaños resultantes:
 \begin{itemize}
   \item \textbf{Beta 3} (\texttt{iso-test}): $\ntr\in\{10\text{k},20\text{k},40\text{k}\}$ fijo y
         $\mte=1000\,g(p)$.
@@ -748,6 +754,9 @@ en unos segundos por repetición.
 % ============================================================================
 
 \subsection{Registro de versiones sobre \texttt{load\_digits}}
+La Tabla~\ref{tab:versiones} compara las cuatro versiones con el código secuencial original sobre
+el conjunto \texttt{load\_digits} del enunciado, con $p=1$ y $p=8$.
+
 \begin{table}[H]
 \centering
 \caption{Evolución de las versiones sobre \texttt{load\_digits} ($\ntr=1437$, $\mte=360$) en Khipu.
@@ -831,19 +840,21 @@ con el rendimiento medido en $p=1$) y el tiempo paralelo medido. Si la condició
 bastara, $E(p)$ sería aproximadamente constante en cada serie.
 
 \subsection{Tiempo de cómputo}
+La Fig.~\ref{fig:iso-tiempos} muestra el tiempo de cómputo $\Tcomp$ de las seis series, sin la
+comunicación, que se analiza aparte en la Sec.~\ref{sec:comm}. El cómputo es el 95--100\,\% de
+$\Ttot$.
+
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.62\textwidth]{isoeficiencia/k2_tiempos.png}
 \caption{Tiempo de cómputo $\Tcomp$ (sin comunicación) frente a $p$. Beta~3 (círculos, línea
 continua): $\ntr$ fijo y $\mte=1000\,p\log_2p$. Variante DAG (cuadrados, línea discontinua): $\mte$
-fijo y $\ntr=1000\,p\log_2p$. El color indica el tamaño fijo. La comunicación se analiza aparte en
-la Sec.~\ref{sec:comm}.}
+fijo y $\ntr=1000\,p\log_2p$. El color indica el tamaño fijo.}
 \label{fig:iso-tiempos}
 \end{figure}
 
-La figura muestra sólo el cómputo, que es el 95--100\,\% de $\Ttot$. El tiempo de cómputo
-\emph{aumenta} con $p$ porque el problema crece más rápido que el número de procesos.
-Como $W(p)\propto p\log_2p$, el trabajo por proceso crece como $\log_2p$ y
+El tiempo de cómputo \emph{aumenta} con $p$ porque el problema crece más rápido que el número de
+procesos. Como $W(p)\propto p\log_2p$, el trabajo por proceso crece como $\log_2p$ y
 \begin{equation}
   \frac{T(p)}{T(1)}=\frac{W(p)/W(1)}{p\,E(p)}=\frac{\log_2 p}{E(p)}\qquad(p\ge2).
   \label{eq:iso-tiempo}
@@ -855,6 +866,12 @@ prácticamente igual a $4/E(16)=4/0.19$. Con la comunicación incluida, $\Ttot(1
 paralelo sigue siendo más rápido que el secuencial: ese mismo problema tardaría $\sim$35.5\,s en un
 proceso frente a 11.9\,s con 16.
 
+\subsection{Tiempo de ejecución total}
+El tiempo de ejecución total (Fig.~\ref{fig:iso-total}) sigue al de cómputo: la diferencia
+$\Ttot-\Tcomp$, que es lo que la comunicación y la fusión añaden al camino crítico, es como máximo
+el 4.5\,\% de $\Ttot$. Las tres magnitudes pedidas (ejecución, cómputo y comunicación) se presentan
+en las Figs.~\ref{fig:iso-total}, \ref{fig:iso-tiempos} y \ref{fig:iso-comm}.
+
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.62\textwidth]{isoeficiencia/k7_tiempo_total.png}
@@ -863,12 +880,11 @@ DAG, fusión), medido en el proceso $0$. Mismas series que la Fig.~\ref{fig:iso-
 \label{fig:iso-total}
 \end{figure}
 
-El tiempo de ejecución total (Fig.~\ref{fig:iso-total}) sigue al de cómputo: la diferencia
-$\Ttot-\Tcomp$, que es lo que la comunicación y la fusión añaden al camino crítico, es como máximo
-el 4.5\,\% de $\Ttot$. Las tres magnitudes pedidas (ejecución, cómputo y comunicación) se presentan
-en las Figs.~\ref{fig:iso-total}, \ref{fig:iso-tiempos} y \ref{fig:iso-comm}.
-
 \subsection{Speedup}
+La Fig.~\ref{fig:iso-speedup} muestra el speedup escalado de la Ec.~\eqref{eq:s-escalado}, y la
+Tabla~\ref{tab:iso} reúne sus valores junto con la eficiencia de cada serie. El speedup crece hasta
+$p=4$--$8$ y luego se estanca en $S\approx2.5$--$3.2$: con 16 procesos se obtiene lo mismo que con 8.
+
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.62\textwidth]{isoeficiencia/k3_speedup.png}
@@ -906,22 +922,28 @@ Versión & Tamaño fijo & 1 & 2 & 4 & 8 & 16\\
 \end{tabular}
 \end{table}
 
-El speedup crece hasta $p=4$--$8$ y luego se estanca en $S\approx2.5$--$3.2$: con 16 procesos se
-obtiene lo mismo que con 8. El número óptimo de procesos se calcula en la Sec.~\ref{sec:popt}.
+El número óptimo de procesos se calcula en la Sec.~\ref{sec:popt}.
 
 \subsection{Eficiencia}
+Aun con el crecimiento del problema de la Sec.~\ref{sec:proporcionalidad}, la eficiencia
+\textbf{no} se mantiene (Fig.~\ref{fig:iso-eficiencia}): cae de 1 a $0.18$--$0.19$ (Beta~3) y
+$0.16$ (variante DAG) con $p=16$.
+
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.62\textwidth]{isoeficiencia/k4_eficiencia.png}
-\caption{Eficiencia $E(p)=S(p)/p$ con el problema creciendo según su condición de isoeficiencia.}
+\caption{Eficiencia $E(p)=S(p)/p$ con el problema creciendo según la condición de la
+Sec.~\ref{sec:proporcionalidad}.}
 \label{fig:iso-eficiencia}
 \end{figure}
 
-Aun cumpliendo la proporcionalidad de cada versión, la eficiencia \textbf{no} se mantiene: cae de 1 a
-$0.18$--$0.19$ (Beta~3) y $0.16$ (variante DAG) con $p=16$. Además, las tres series de cada versión
-casi coinciden: el tamaño fijo no cambia la eficiencia.
+Además, las tres series de cada versión casi coinciden: el tamaño fijo no cambia la eficiencia. Las
+causas se analizan en la Sec.~\ref{sec:debil}.
 
 \subsection{Rendimiento en FLOP/s}
+La Fig.~\ref{fig:iso-gflops} muestra los GFLOP/s agregados de la región paralelizable, calculados
+con la Ec.~\eqref{eq:flops}.
+
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.62\textwidth]{isoeficiencia/k5_gflops.png}
@@ -934,6 +956,9 @@ en $\sim$45--51\,GFLOP/s; con $p=16$ cada proceso rinde $\sim$3\,GFLOP/s.
 
 \subsection{Comunicación}
 \label{sec:comm}
+La Fig.~\ref{fig:iso-comm} muestra el tiempo de comunicación medido (izquierda) y su fracción del
+tiempo total (derecha).
+
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{isoeficiencia/k8_comunicacion.png}
@@ -1172,7 +1197,8 @@ Fiestas~\cite{fiestasU1,fiestasU2,fiestasU21,fiestasU22,fiestasU3,fiestasU4,fies
 
 \subsection{Uso de herramientas de asistencia y modelos de lenguaje}
 En cumplimiento de las pautas académicas del curso, se declara el uso del modelo de lenguaje
-Claude~\cite{claude} como herramienta de apoyo en aspectos específicos del trabajo:
+Claude~\cite{claude} como herramienta de apoyo en aspectos específicos del trabajo, detallados en la
+Tabla~\ref{tab:llm}:
 
 \begin{table}[H]
 \centering
