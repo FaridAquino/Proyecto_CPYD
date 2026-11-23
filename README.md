@@ -27,7 +27,7 @@ Mediciones en el clúster Khipu (nodo con 2 × Intel Xeon Gold 6130, hasta 16 n�
 | Eficiencia con p = 16 | 0.16–0.19 |
 | Comunicación en el camino crítico | ≤ 4.5 % del tiempo total |
 | Rendimiento agregado | 14–19 GFLOP/s con p = 1; se satura en ~50 GFLOP/s |
-| Número óptimo de procesos | teórico (mín. T_p) 65–660; medido p\* = 8 (Beta 3), 4–8 (DAG) |
+| Número óptimo de procesos | teórico (mín. T_p) 65–660; según el speedup medido, p\* = 8 (Beta 3) y 4–8 (DAG) |
 
 ## Estructura
 

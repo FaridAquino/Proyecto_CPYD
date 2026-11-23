@@ -632,6 +632,12 @@ multiplicaciones, $d-1$ sumas y una raíz: $3d$ FLOPs. El total y el rendimiento
   W_{\text{FLOP}}=3\,\mte\,\ntr\,d,\qquad
   \text{GFLOP/s}=\frac{3\,\mte\,\ntr\,d}{\Tcomp\cdot10^{9}}.\label{eq:flops}
 \end{equation}
+Este es el conteo que pide el enunciado: los FLOP de la fórmula de la distancia euclidiana, con la
+raíz contada como una operación. Desde la Beta~2 el código no evalúa la fórmula término a término,
+sino la identidad $\|\mathbf{q}\|^2+\|\mathbf{x}\|^2-2\,\mathbf{q}\cdot\mathbf{x}$ con BLAS, y ejecuta
+además la selección y el voto. Por eso los GFLOP/s reportados son una tasa \emph{nominal} (FLOP de la
+fórmula por segundo de cómputo), útil para comparar versiones y valores de $p$, y no un conteo de
+las instrucciones que ejecuta el procesador, que no se midió con contadores de hardware.
 
 % ============================================================================
 \section{Diseño del experimento: escalabilidad con tamaño variable}
@@ -964,14 +970,17 @@ dominante es otra:
         en proporción al trabajo; si $T_o\propto W$, la Ec.~\eqref{eq:iso-curso} no tiene solución
         y ningún crecimiento del problema la compensa. Por eso las tres series de cada versión
         coinciden (Tabla~\ref{tab:iso}): el tamaño fijo no cambia la eficiencia.
-  \item \textbf{El cálculo está limitado por la memoria (cuello de botella de von Neumann).} Después
-        del producto matricial hay varias pasadas sobre la matriz de distancias (normas,
-        \texttt{maximum}, \texttt{sqrt}, \texttt{argpartition}) con muy pocas operaciones por byte. En
-        la Beta~3 cada proceso recorre $\Xtr$ completo (20\,MB con $\ntr=40$k) por cada bloque de 256
-        consultas y escribe $256\,\ntr\cdot8$\,B ($\sim$80\,MB) de distancias. Nada de esto cabe en
-        caché y todos los procesos comparten los canales de memoria del nodo; la Unidad~2.1 indica
+  \item \textbf{Hipótesis: el cálculo está limitado por la memoria (cuello de botella de von
+        Neumann).} Después del producto matricial hay varias pasadas sobre la matriz de distancias
+        (normas, \texttt{maximum}, \texttt{sqrt}, \texttt{argpartition}) con muy pocas operaciones por
+        byte. En la Beta~3 cada proceso recorre $\Xtr$ completo (20\,MB con $\ntr=40$k) por cada bloque
+        de 256 consultas y escribe $256\,\ntr\cdot8$\,B ($\sim$80\,MB) de distancias. Nada de esto cabe
+        en caché y todos los procesos comparten los canales de memoria del nodo; la Unidad~2.1 indica
         que el acceso a memoria se mide en GB/s y el cómputo en GFLOP/s~\cite{fiestasU21}, y aquí
-        limita lo primero~\cite{fiestasU1,backus1978}.
+        limitaría lo primero~\cite{fiestasU1,backus1978}. Es la explicación más consistente con las
+        mediciones (rendimiento agregado que se estanca, pérdida que no depende del tamaño y
+        comunicación pequeña), pero no se confirmó midiendo el ancho de banda de memoria ni con
+        contadores de hardware.
   \item \textbf{Dentro de un nodo el \texttt{Bcast} es lineal, no en árbol.} El microbenchmark de
         colectivas ajusta mejor el modelo lineal, $(p-1)(\alpha+M\beta)$ ($R^2=0.997$), que el de
         árbol, $\log_2p\,(\alpha+M\beta)$ ($R^2=0.864$), ambos de la Unidad~2~\cite{fiestasU2}: en
@@ -1025,7 +1034,7 @@ es decir, la condición de la Sec.~\ref{sec:proporcionalidad} cumple su objetivo
 comunicación, mientras que la eficiencia medida cae hasta $0.16$--$0.19$. La teoría valida la forma
 del algoritmo (el cómputo domina y la comunicación es pequeña), y la diferencia cuantifica la
 sobrecarga que la complejidad asintótica no incluye: $k_1$ no es constante, porque cada FLOP cuesta
-más cuantos más procesos comparten la memoria del nodo (Sec.~\ref{sec:debil}).
+más cuantos más procesos trabajan a la vez en el nodo (Sec.~\ref{sec:debil}).
 
 \subsection{Número óptimo de procesos}
 \label{sec:popt}
@@ -1045,18 +1054,26 @@ $p^*\approx65$ con el modelo lineal ($\beta=1.23\times10^{-9}$\,s/palabra por co
 $c\approx0.008$\,s). Ambos están muy por encima de los 16 núcleos disponibles, porque la teoría sólo
 cuenta la comunicación como sobrecarga.
 
-\paragraph{Óptimo medido.} Con el criterio de la Unidad~6.2, que compara $S$ y $E$ para cada $p$, el
-óptimo es el $p$ a partir del cual añadir procesos ya no reduce el tiempo. En la Tabla~\ref{tab:iso}
-el speedup de la Beta~3 es máximo con $p=8$ en las tres series ($S=2.87$--$3.19$) y con $p=16$ no
-mejora ($S=2.84$--$3.10$); el de la variante DAG se estanca entre $p=4$ y $p=8$ ($S=2.5$--$2.7$).
-\textbf{El número óptimo de procesos en este nodo es $p^*=8$} para la Beta~3 y de 4 a 8 para la
-variante DAG, con eficiencias de 0.34--0.40 y 0.33--0.68. Pasar de 8 a 16 procesos duplica los
-recursos sin reducir el tiempo.
+\paragraph{Óptimo estimado con las mediciones.} Con el criterio de la Unidad~6.2, que compara $S$ y
+$E$ para cada $p$, el óptimo es el $p$ a partir del cual añadir procesos ya no aporta speedup. En la
+Tabla~\ref{tab:iso} el speedup de la Beta~3 es máximo con $p=8$ en las tres series
+($S=2.87$--$3.19$) y con $p=16$ no mejora ($S=2.84$--$3.10$); el de la variante DAG se estanca entre
+$p=4$ y $p=8$ ($S=2.5$--$2.7$). \textbf{Según el speedup de los escenarios medidos, el número óptimo
+de procesos en este nodo es $p^*=8$} para la Beta~3 y de 4 a 8 para la variante DAG, con
+eficiencias de 0.34--0.40 y 0.33--0.68.
+
+Hay que precisar el alcance de este resultado. En el experimento el problema crece con $p$, de modo
+que el máximo del speedup escalado no demuestra por sí solo qué $p$ minimiza el tiempo de \emph{un
+mismo} problema. Hay un indicio de que el resultado se mantiene con tamaño fijo: la eficiencia
+medida no depende del tamaño, porque las tres series de cada versión coinciden
+(Tabla~\ref{tab:iso}). Aun así, confirmarlo requiere medir $T_p$ con $\ntr$ y $\mte$ constantes para
+$p=1,\dots,16$, que queda como trabajo pendiente.
 
 \subsection{Mejoras propuestas}
 \label{sec:mejoras}
-Como el límite es el tráfico de memoria y no la comunicación, las mejoras con más impacto son las
-que reducen los bytes movidos por FLOP en el cómputo local:
+La comunicación no es el límite. Si, como indican las mediciones, el límite es el tráfico de memoria
+(Sec.~\ref{sec:debil}), las mejoras con más impacto son las que reducen los bytes movidos por FLOP en
+el cómputo local:
 \begin{enumerate}
   \item \textbf{Eliminar la raíz cuadrada.} La raíz es monótona, así que los $k$ vecinos se pueden
         elegir sobre $\|q-x\|^2$. Se ahorra una pasada completa sobre la matriz de distancias.
@@ -1068,6 +1085,9 @@ que reducen los bytes movidos por FLOP en el cómputo local:
   \item \textbf{Fusión de candidatos en árbol (variante DAG).} Un \texttt{MPI\_Reduce} con un operador
         propio que combine los top-$k$ de dos procesos reemplaza el \texttt{Gather} de $\mte\,k\,p$
         pares y la fusión serial $O(\mte\,p\,k)$ por $O(\mte\,k\log p)$.
+  \item \textbf{Medir con tamaño fijo.} Repetir el experimento con $\ntr$ y $\mte$ constantes para
+        confirmar el número óptimo de procesos (Sec.~\ref{sec:popt}), y medir el ancho de banda de
+        memoria para confirmar la causa de la saturación (Sec.~\ref{sec:debil}).
   \item \textbf{Escalar con varios nodos (paralelismo híbrido).} Usar $p^*\approx8$ procesos por nodo
         y aumentar el número de nodos~\cite{fiestasU4}: cada nodo aporta su propio ancho de banda de
         memoria y las colectivas entre nodos siguen el modelo en árbol.
@@ -1096,13 +1116,15 @@ que reducen los bytes movidos por FLOP en el cómputo local:
         Beta~3 se mantiene si $\mte\propto p\log p$, y la de la variante DAG si $\ntr\propto p\log p$.
   \item Aun con ese crecimiento, la eficiencia cae de 1 a $0.16$--$0.19$ con $p=16$, con
         independencia del tamaño. La comunicación añade a lo sumo el 4.5\,\% al tiempo total; la
-        causa es que el rendimiento agregado del nodo se satura en $\sim$50\,GFLOP/s, propio de un
-        cálculo limitado por el ancho de banda de memoria.
+        causa es que el rendimiento agregado del nodo se satura en $\sim$50\,GFLOP/s. La explicación
+        más consistente es un cálculo limitado por el ancho de banda de memoria, aunque no se midió
+        directamente.
   \item La expresión teórica normalizada ($k_1$ medido con $p=1$; $\alpha$ y $\beta$ del
         microbenchmark) coincide con la medición con $p\le2$, pero subestima $\Ttot$ hasta un 84\,\%
         con $p=16$, porque supone un costo por FLOP constante.
-  \item Minimizar $T_p$ da $p^*\approx65$--$660$, fuera del nodo; el óptimo medido es $p^*=8$ (Beta~3)
-        y 4--8 (variante DAG): con más procesos el tiempo ya no baja. Las mejoras con más impacto
+  \item Minimizar $T_p$ da $p^*\approx65$--$660$, fuera del nodo. Según el speedup de los escenarios
+        medidos, el óptimo es $p^*=8$ (Beta~3) y 4--8 (variante DAG); como el problema crece con $p$,
+        confirmarlo para un tamaño fijo requiere una medición adicional. Las mejoras con más impacto
         reducen el tráfico de memoria del cómputo local y reparten el trabajo entre varios nodos.
 \end{enumerate}
 
