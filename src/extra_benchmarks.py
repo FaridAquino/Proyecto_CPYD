@@ -1,18 +1,14 @@
 """
-extra_benchmarks.py -- Experimentos complementarios (Fase 3b).
+extra_benchmarks.py -- microbenchmark de comunicación para alpha y beta.
 
-  1. pinning : P-cores vs E-cores vs SMT con carga fija por proceso
-               (pin_bench.py)                         -> results/pinning.csv
-  2. comm    : colectivas sin cómputo para alpha, beta (comm_bench.py)
-                                                       -> results/comm_bench.csv
-  3. noise   : strong N=50000 completado hasta --reps-noise repeticiones
-               (benchmark_runner.py, reanudable)      -> results/results.csv
+  comm : colectivas MPI sin cómputo (comm_bench.py) para p = 2..16
+         -> <out>/comm_bench.csv
+Los valores de alpha y beta normalizan el término de comunicación de la
+expresión teórica (Sec. 6.10 del informe).
 
-Uso:  python extra_benchmarks.py [--exp pinning comm noise] [--out results/khipu]
-      (pinning sólo funciona en Windows; en Khipu use --exp comm)
+Uso:  python extra_benchmarks.py --exp comm --out results/khipu/aumento_train
 """
 import argparse
-import json
 import os
 import subprocess
 import sys
@@ -31,65 +27,23 @@ def sh(cmd):
             print("  " + line, flush=True)
 
 
-def pin_configs(g):
-    P, S, E = g["P"], g["P_smt"], g["E"]
-    smt_pairs = [c for pair in zip(P, S) for c in pair]          # 0,1,2,3,...
-    return [
-        ("P1", P[:1]), ("E1", E[:1]), ("SMT2", smt_pairs[:2]),
-        ("P4", P[:4]), ("E4", E[:4]),
-        ("P8", P), ("E8", E), ("PSMT8", smt_pairs[:8]),
-        ("P8+E8", P + E), ("P16smt", smt_pairs), ("P8+E4", P + E[:4]),
-        ("ALL24", smt_pairs + E),
-        ("def1", 1), ("def8", 8), ("def16", 16), ("def24", 24),
-    ]
-
-
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--exp", nargs="+", default=["pinning", "comm", "noise"])
-    ap.add_argument("--reps-noise", type=int, default=7)
-    ap.add_argument("--s", type=int, nargs="+", default=[2, 4, 8, 12, 16, 20, 24])
-    ap.add_argument("--out", default=DEFAULT_RESULTS,
-                    help="carpeta de resultados (p. ej. results/khipu)")
+    ap.add_argument("--exp", nargs="+", default=["comm"], choices=["comm"])
+    ap.add_argument("--s", type=int, nargs="+", default=[2, 4, 8, 16])
+    ap.add_argument("--out", default=DEFAULT_RESULTS, help="carpeta de resultados")
     args = ap.parse_args()
     mpiexec = find_mpiexec()
-    RESULTS = os.path.abspath(args.out)
-    os.makedirs(RESULTS, exist_ok=True)
+    results = os.path.abspath(args.out)
+    os.makedirs(results, exist_ok=True)
     args.s = [s for s in limit_s(args.s) if s >= 2]
 
-    if "pinning" in args.exp:
-        print("=== pinning ===")
-        from cpu_topology import groups, topology      # sólo Windows (kernel32)
-        top = topology()
-        g = groups(top)
-        with open(os.path.join(RESULTS, "cpu_topology.json"), "w") as fh:
-            json.dump(dict(cpus=top, groups=g), fh, indent=2)
-        out = os.path.join(RESULTS, "pinning.csv")
-        if os.path.exists(out):
-            os.remove(out)
-        for name, cpus in pin_configs(g):
-            if isinstance(cpus, int):           # sin afinidad: decide Windows
-                cmd = [mpiexec, "-n", str(cpus), sys.executable, "pin_bench.py",
-                       "--config", name, "--csv", out]
-            else:
-                cmd = [mpiexec, "-n", str(len(cpus)), sys.executable, "pin_bench.py",
-                       "--config", name, "--cpus", ",".join(map(str, cpus)), "--csv", out]
-            sh(cmd)
-
-    if "comm" in args.exp:
-        print("=== comm ===")
-        out = os.path.join(RESULTS, "comm_bench.csv")
-        if os.path.exists(out):
-            os.remove(out)
-        for s in args.s:
-            sh([mpiexec, "-n", str(s), sys.executable, "comm_bench.py", "--csv", out])
-
-    if "noise" in args.exp:
-        print("=== noise (strong N=50000) ===")
-        subprocess.run([sys.executable, "-u", "benchmark_runner.py", "--exp", "strong",
-                        "--N", "50000", "--reps", str(args.reps_noise),
-                        "--out", RESULTS],
-                       cwd=HERE, env=child_env(), check=True)
+    print("=== comm ===")
+    out = os.path.join(results, "comm_bench.csv")
+    if os.path.exists(out):
+        os.remove(out)
+    for s in args.s:
+        sh([mpiexec, "-n", str(s), sys.executable, "comm_bench.py", "--csv", out])
 
 
 if __name__ == "__main__":

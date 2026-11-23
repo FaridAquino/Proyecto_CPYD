@@ -5,12 +5,14 @@
 % Estructura de carpetas esperada:
 %   latex/informe_final.tex, latex/refs.bib
 %   figures/khipu/isoeficiencia/*.png
-%   (generadas por src/generate_plots_khipu.py --modo iso)
+%   (k2-k5, k8: src/generate_plots_khipu.py --modo iso;
+%    k6, k7:    src/figuras_informe_iso.py)
 % ============================================================================
 \documentclass[11pt,a4paper]{article}
 
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
+\usepackage{lmodern}          % fuentes vectoriales (evita texto borroso en bitmap Type 3)
 \usepackage[spanish,es-tabla,es-noshorthands]{babel}
 \usepackage[a4paper,margin=2.5cm]{geometry}
 \usepackage{amsmath,amssymb}
@@ -190,7 +192,8 @@ $T_s$, $T_p(p)$ & tiempo de ejecución secuencial y paralelo con $p$ procesos\\
 $\Tcomp$, $\Tcomm$ & tiempos de cómputo y de comunicación\\
 $S(p)$, $E(p)$ & \emph{speedup} y eficiencia con $p$ procesos\\
 $f_s$ & fracción serial (Ley de Amdahl)\\
-$k_1$, $k_2$ & s/FLOP de un proceso aislado y del nodo saturado (Sec.~\ref{sec:popt})\\
+$k_1$ & constante de normalización del cómputo [s/FLOP] (Sec.~\ref{sec:normalizacion})\\
+$T_o$ & función de \emph{overhead}, $T_o=p\,T_p-W$~\cite{fiestasU62}\\
 $p^*$ & número óptimo de procesos\\
 \bottomrule
 \end{tabular}
@@ -203,8 +206,8 @@ $p^*$ & número óptimo de procesos\\
 \KwIn{Dos arreglos $\mathbf{a},\mathbf{b}\in\mathbb{R}^d$}
 \KwOut{Distancia $\|\mathbf{a}-\mathbf{b}\|_2$}
 $\delta\leftarrow 0$\;
-\For{$i\leftarrow 0$ \KwTo $d-1$}{
-  $\delta\leftarrow\delta+(a[i]-b[i])^2$\;
+\For{$l\leftarrow 0$ \KwTo $d-1$}{
+  $\delta\leftarrow\delta+(a[l]-b[l])^2$\;
 }
 \Return{$\sqrt{\delta}$}\;
 \end{algorithm}
@@ -285,7 +288,8 @@ colectivas son puntos de sincronización implícita.
 \KwIn{Datos $\mathbf{X}\in\mathbb{R}^{(\ntr+\mte)\times d}$, etiquetas
       $\mathbf{y}\in\{0,\dots,9\}^{\ntr+\mte}$, $p$ procesos}
 \KwOut{Exactitud del modelo y tiempo de ejecución (en el proceso $0$)}
-\KwLocal{Cada proceso $i\in\{0,\dots,p-1\}$ recibe un bloque $\Xte^{(i)}$ de $\mte/p$ consultas}
+\KwLocal{Cada proceso $i\in\{0,\dots,p-1\}$ recibe un bloque $\Xte^{(i)}$ de
+  $m_i=\lfloor\mte/p\rfloor+[\,i<\mte\bmod p\,]$ consultas (Ec.~\eqref{eq:bloques})}
 \BlankLine
 \ForAllPar{$i\leftarrow 0$ \KwTo $p-1$}{
   \If{$i=0$}{
@@ -294,12 +298,13 @@ colectivas son puntos de sincronización implícita.
   }
   $k\leftarrow 3$\;
   \Bcast{$\Xtr,\ytr,0$}\;
-  $\Xte^{(i)}\leftarrow$ \Scatter{$\Xte$}\;
+  $\Xte^{(i)}\leftarrow$ \Scatterv{$\Xte,(m_i),(\mathrm{desp}_i)$}\;
   $\yhat^{(i)}\leftarrow[\,]$\;
   \ForEach{$\mathbf{x}\in\Xte^{(i)}$}{
     añadir \Predict{$\Xtr,\ytr,\mathbf{x},k$} a $\yhat^{(i)}$ \tcp*{Algoritmo~\ref{alg:predict}}
   }
-  $\yhat\leftarrow$ \Gather{$\yhat^{(i)}$}\;
+  $\yhat[\mathrm{desp}_i+1..\mathrm{desp}_i+m_i]\leftarrow$ \Gatherv{$\yhat^{(i)}$}
+    \tcp*{escritura exclusiva}
   \If{$i=0$}{
     exactitud $\leftarrow\texttt{mean}(\yhat=\yte)$\;
     $t_{\text{fin}}\leftarrow\texttt{time}()$\;
@@ -314,8 +319,8 @@ Las métricas se leen directamente de los algoritmos:
   \item \textbf{Tiempo de ejecución secuencial:} $T_s=t_{\text{fin}}-t_{\text{inicio}}$ del
         Algoritmo~\ref{alg:knn-sec} (líneas de \texttt{time()}).
   \item \textbf{Tiempo de ejecución paralelo:} $T_p(p)=t_{\text{fin}}-t_{\text{inicio}}$ medido en
-        el proceso $0$ del Algoritmo~\ref{alg:knn-mpi}. Incluye \texttt{Bcast}, \texttt{Scatter},
-        el cómputo local y \texttt{Gather}, y equivale a la Ec.~\eqref{eq:tp}.
+        el proceso $0$ del Algoritmo~\ref{alg:knn-mpi}. Incluye \texttt{Bcast}, \texttt{Scatterv},
+        el cómputo local y \texttt{Gatherv}, y equivale a la Ec.~\eqref{eq:tp}.
   \item \textbf{Speedup:} $S(p)=T_s/T_p(p)$.
   \item \textbf{Eficiencia:} $E(p)=S(p)/p=T_s/\big(p\,T_p(p)\big)$.
 \end{itemize}
@@ -366,7 +371,7 @@ Para $p\le m$ se cumple $m/p\ge1$, y el término $T_\infty$ queda absorbido:
 \end{equation}
 
 \subsubsection{Tiempo de comunicación}
-Usamos el modelo de costo $\alpha$--$\beta$ con colectivas en árbol~\cite{grama2003}. Para un mensaje
+Usamos el modelo de costo $\alpha$--$\beta$ con colectivas en árbol~\cite{fiestasU2}. Para un mensaje
 de $M$ palabras, el \texttt{Bcast} cuesta $\log p\,(\alpha+M\beta)$, y el \texttt{Scatter} y el
 \texttt{Gather} cuestan $\alpha\log p+M\beta$. Los mensajes son $\Xtr$ y $\ytr$ ($M=n(d+1)$), $\Xte$
 ($M=md$) y $\yhat$ ($M=m$):
@@ -565,6 +570,45 @@ que no difunde $\Xtr$, que en este problema es el conjunto más grande, y que ca
 con un bloque de entrenamiento $p$ veces menor; su desventaja es que la recolección y la fusión
 crecen linealmente con $p$.
 
+El Algoritmo~\ref{alg:knn-dag} formaliza esta variante con el mismo formalismo \textbf{pardo}. Cada
+colectiva lleva anotado su costo según el DAG del enunciado~\cite{fiestasProyecto}: el reparto de
+$\Xtr$, $O\big(p(\alpha+\tfrac{\ntr}{p}\beta)\big)$; la difusión de $\Xte$,
+$O\big(\log p\,(\alpha+\mte\beta)\big)$; el cómputo local, $O(\ntr\mte/p)$, y la recolección de los
+$k$ candidatos, $O\big(p(\alpha+k\beta)\big)$ por consulta.
+
+\begin{algorithm}[H]
+\caption{KNN distribuido con MPI, variante DAG (reparto del entrenamiento)}\label{alg:knn-dag}
+\KwIn{Datos $\mathbf{X}\in\mathbb{R}^{(\ntr+\mte)\times d}$, etiquetas
+      $\mathbf{y}\in\{0,\dots,9\}^{\ntr+\mte}$, $p$ procesos}
+\KwOut{Exactitud del modelo y tiempo de ejecución (en el proceso $0$)}
+\KwLocal{Cada proceso $i$ recibe un bloque $(\Xtr^{(i)},\ytr^{(i)})$ de $n_i$ puntos de
+  entrenamiento (Ec.~\eqref{eq:bloques} con $\ntr$ en lugar de $\mte$)}
+\BlankLine
+\ForAllPar{$i\leftarrow 0$ \KwTo $p-1$}{
+  \If{$i=0$}{
+    $\Xtr,\Xte,\ytr,\yte\leftarrow\texttt{train\_test\_split}(\mathbf{X},\mathbf{y})$\;
+    $t_{\text{inicio}}\leftarrow\texttt{time}()$\;
+  }
+  $(\Xtr^{(i)},\ytr^{(i)})\leftarrow$ \Scatterv{$\Xtr,\ytr,(n_i),(\mathrm{desp}_i)$}
+    \tcp*{$O\big(p(\alpha+\tfrac{\ntr}{p}\beta)\big)$}
+  $\Xte\leftarrow$ \Bcast{$\Xte,0$} \tcp*{$O\big(\log p\,(\alpha+\mte\beta)\big)$}
+  \ForEach{$j\leftarrow 1$ \KwTo $\mte$}{
+    $(D^{(i)}_j,L^{(i)}_j)\leftarrow$ las $k$ menores distancias de $\Xte[j]$ a $\Xtr^{(i)}$ y sus
+    etiquetas \tcp*{$O(n_i d)$}
+  }
+  $\{(D^{(l)},L^{(l)})\}_{l=0}^{p-1}\leftarrow$ \Gather{$D^{(i)},L^{(i)}$}
+    \tcp*{$\mte k$ pares por proceso}
+  \If{$i=0$}{
+    \ForEach{$j\leftarrow 1$ \KwTo $\mte$}{
+      $\yhat[j]\leftarrow$ moda de las etiquetas de las $k$ menores distancias entre los $p\,k$
+      candidatos $\{(D^{(l)}_j,L^{(l)}_j)\}_{l}$ \tcp*{fusión serial}
+    }
+    exactitud $\leftarrow\texttt{mean}(\yhat=\yte)$;\quad $t_{\text{fin}}\leftarrow\texttt{time}()$\;
+    \Return{exactitud, $t_{\text{fin}}-t_{\text{inicio}}$}\;
+  }
+}
+\end{algorithm}
+
 \paragraph{Corrección de la variante DAG.}
 Si $\mathbf{x}$ pertenece a los $k$ vecinos globales de $\mathbf{q}$ y
 $\mathbf{x}\in\Xtr^{(i)}$, entonces $\mathbf{x}$ también está entre los $k$ vecinos de $\mathbf{q}$
@@ -590,14 +634,20 @@ multiplicaciones, $d-1$ sumas y una raíz: $3d$ FLOPs. El total y el rendimiento
 \end{equation}
 
 % ============================================================================
-\section{Condiciones de isoeficiencia}
+\section{Diseño del experimento: escalabilidad con tamaño variable}
 \label{sec:proporcionalidad}
 % ============================================================================
-Un algoritmo es débilmente escalable si, al aumentar $p$, el tamaño del problema puede crecer de
-modo que la eficiencia se mantenga constante~\cite{fiestasU21,gustafson1988}. La regla de
-crecimiento que lo logra es la \emph{función de isoeficiencia}~\cite{grama2003}. Con
-$E=1/(1+T_o/W)$, donde $T_o=p\,T_p(p)-W$ es la sobrecarga total y $W$ el trabajo, $E$ es constante
-si y sólo si $T_o/W$ es constante. Se usa el modelo de colectivas en árbol de la
+El enunciado pide aumentar tanto $p$ como el tamaño del problema y analizar la escalabilidad con
+un tamaño variable. Para decidir \emph{cuánto} crece el problema con $p$ usamos la escalabilidad
+algorítmica de la Unidad~6.2~\cite{fiestasU62}: con el trabajo $W=T_s$ y la función de
+\emph{overhead} $T_o=p\,T_p-W$,
+\begin{equation}
+  E=\frac{1}{1+T_o(W,p)/W},\qquad W=\frac{E}{1-E}\,T_o(W,p)=K\,T_o(W,p),
+  \label{eq:iso-curso}
+\end{equation}
+de modo que la eficiencia se mantiene constante si $W$ crece como $T_o$. En el material, la suma de
+$n$ números con comunicación en árbol da $T_o=p\log p$ y $W=K\,p\log p$~\cite{fiestasU62}; a
+continuación se obtiene la misma forma para KNN con el modelo de colectivas en árbol de la
 Sec.~\ref{sec:complejidad}.
 
 \paragraph{Beta 3: $\mte\propto p\log p$.}
@@ -652,17 +702,10 @@ $1000\,g(p)$ & 1\,000 & 2\,000 & 8\,000 & 24\,000 & 64\,000\\
 \end{table}
 
 \paragraph{La constante 1000.}
-La isoeficiencia fija sólo la \emph{proporcionalidad}: cualquier constante $c$ en
-$\mte=c\,g(p)$ mantiene constante el cociente $T_o/W$; la constante sólo determina \emph{en qué
-valor} se mantiene $E$. Con los parámetros medidos ($\beta\approx5.5\times10^{-9}$\,s/palabra para el
-\texttt{Bcast} en árbol y el costo por FLOP de un proceso aislado, $k_1\approx7\times10^{-11}$\,s/FLOP,
-medido en las primeras campañas y confirmado por el ajuste de la Sec.~\ref{sec:popt}), la
-Ec.~\eqref{eq:iso-beta3} da
-$c\approx230$ para $E=0.9$. Una primera corrida con $c=250$ mostró que, con $p=1$, el problema
-($250$ consultas o $250$ puntos de entrenamiento) era tan pequeño que el producto matricial rendía
-la mitad que con matrices grandes; eso inflaba $T(1)$ y daba eficiencias mayores que 1. Se eligió
-$c=1000$ para que el caso base tenga al menos $1000$ filas y tiempos de $0.1$\,s o más, manteniendo
-el problema más grande ($64\,000\times40\,000$ con $p=16$) dentro de unos segundos por repetición.
+La Ec.~\eqref{eq:iso-curso} fija sólo la proporcionalidad: la constante $K$ determina \emph{en qué
+valor} se mantiene $E$. Se eligió $1000$ para que el caso base ($p=1$) tenga al menos 1000 filas y
+tiempos de $0.1$\,s o más, y el problema más grande ($64\,000\times40\,000$ con $p=16$) se resuelva
+en unos segundos por repetición.
 
 % ============================================================================
 \section{Entorno experimental}
@@ -693,40 +736,6 @@ el problema más grande ($64\,000\times40\,000$ con $p=16$) dentro de unos segun
         más lento.
 \end{itemize}
 
-\subsection{Errores en las primeras corridas y correcciones}
-\label{sec:errores}
-Las primeras campañas en Khipu tenían errores de configuración que invalidaban la comparación entre
-números de procesos. Se detectaron y corrigieron antes de las mediciones de este informe:
-
-\begin{enumerate}
-  \item \textbf{Procesos en hilos SMT y no en núcleos físicos.} Las primeras corridas pedían
-        \texttt{--ntasks=32 --cpus-per-task=1}, suponiendo que cada ``CPU'' de SLURM era un núcleo.
-        En Khipu SLURM cuenta \emph{hilos}: al pedir 4 CPUs entrega \texttt{0-1,32-33}, que según
-        \texttt{lscpu} son los dos hilos de los núcleos físicos 0 y 1. Así, 32 tareas recibían 32
-        hilos, es decir sólo \textbf{16 núcleos físicos}. Con $p=32$ había dos procesos por núcleo
-        compartiendo sus unidades de ejecución y cachés, y con $p\le16$ nada garantizaba que dos
-        procesos no cayeran en el mismo núcleo; parte de la caída de eficiencia medida entonces
-        entre $p=16$ y $p=32$ se debía a esto y no al algoritmo. El error se hizo visible al pedir
-        afinidad explícita: \texttt{mpiexec --bind-to core} abortaba porque había más procesos que
-        núcleos disponibles. Se corrigió con \texttt{--cpus-per-task=2}, que entrega a cada proceso
-        un núcleo físico completo, y se añadió \texttt{--report-bindings} para verificar en cada
-        corrida que cada proceso ocupa un núcleo distinto.
-  \item \textbf{Límite de CPUs de la cuenta.} Con \texttt{--cpus-per-task=2}, 32 procesos exigen 64
-        CPUs. El trabajo quedaba en espera indefinida (\texttt{QOSMaxCpuPerUserLimit}) porque la QOS
-        de la cuenta (\texttt{a-pregrado}) permite como máximo 32 CPUs por usuario en cualquier
-        partición. Por eso se mide hasta $p=16$: \textbf{$p=32$ con un proceso por núcleo físico no
-        es posible} con esta cuenta. Además, el script fija la partición \texttt{standard}, porque
-        la partición por defecto (\texttt{debug}) tiene límites más estrictos.
-  \item \textbf{Mediciones en frío.} Cada lanzamiento medía 3 repeticiones, incluida la primera. En
-        las corridas de menos de 1\,s la primera repetición resultó en mediana un 22\,\% más lenta que
-        las siguientes, y en un caso hasta 12 veces más lenta, por la inicialización de las
-        colectivas, la memoria compartida de MPI, BLAS y las cachés. Se añadió una ejecución de
-        calentamiento descartada y se aumentó a 5 repeticiones medidas.
-  \item \textbf{Caso base demasiado pequeño.} La primera corrida de isoeficiencia usó
-        $\mte=250\,g(p)$ y $\ntr=250\,g(p)$. Con $p=1$, el problema de 250 filas hacía rendir al
-        producto matricial la mitad de lo normal, lo que inflaba $T(1)$ y producía eficiencias
-        mayores que 1. Se aumentó la constante a 1000 (Sec.~\ref{sec:proporcionalidad}).
-\end{enumerate}
 
 % ============================================================================
 \section{Resultados y análisis}
@@ -764,9 +773,50 @@ recupera el escalamiento ($S=966.7$ con $p=8$ frente al secuencial original). Co
 \texttt{load\_digits} se resuelve en milisegundos, el resto del análisis usa los conjuntos
 sintéticos.
 
+\subsection{Exactitud del modelo al aumentar los datos}
+\label{sec:exactitud}
+En cada corrida de isoeficiencia se calcula la exactitud sobre las $\mte$ consultas. La
+Tabla~\ref{tab:exactitud} muestra la variante DAG, en la que crece el entrenamiento, y la Beta~3,
+en la que crecen las consultas. La exactitud no depende de $p$: todas las repeticiones y todos los
+$p$ dan el mismo valor, porque las predicciones son idénticas a las secuenciales.
+
+\begin{table}[H]
+\centering
+\caption{Exactitud sobre los datos sintéticos ($k=3$). Arriba, variante DAG con $\mte$ fijo y
+$\ntr$ creciente; abajo, Beta~3 con $\ntr$ fijo y $\mte$ creciente.}
+\label{tab:exactitud}
+\small
+\begin{tabular}{lccccc}
+\toprule
+$\ntr$ (DAG) & 1\,000 & 2\,000 & 8\,000 & 24\,000 & 64\,000\\
+\midrule
+$\mte=10$k & 0.9893 & 0.9921 & 0.9959 & 0.9975 & 0.9983\\
+$\mte=20$k & 0.9888 & 0.9912 & 0.9955 & 0.9965 & 0.9984\\
+$\mte=40$k & 0.9890 & 0.9916 & 0.9960 & 0.9972 & 0.9982\\
+\midrule
+$\mte$ (Beta 3) & 1\,000 & 2\,000 & 8\,000 & 24\,000 & 64\,000\\
+\midrule
+$\ntr=10$k & 0.9960 & 0.9970 & 0.9962 & 0.9964 & 0.9963\\
+$\ntr=20$k & 0.9950 & 0.9975 & 0.9966 & 0.9967 & 0.9969\\
+$\ntr=40$k & 0.9980 & 0.9995 & 0.9976 & 0.9970 & 0.9977\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Al aumentar el entrenamiento, la exactitud sube de forma monótona de $0.989$ ($\ntr=1$k) a $0.998$
+($\ntr=64$k): con más puntos etiquetados los $k$ vecinos están más cerca de la consulta. Aumentar
+las consultas sólo cambia la muestra evaluada: con $\ntr$ fijo la exactitud oscila menos de 0.3
+puntos porcentuales. Los valores son mayores que en \texttt{load\_digits} ($0.9833$) porque los datos
+sintéticos se generan con una gaussiana por clase, cuyas clases están mejor separadas que los dígitos
+manuscritos reales; por eso este conjunto se usa para medir rendimiento y no para evaluar el
+clasificador.
+
 \subsection{Métricas con un problema que crece}
-En este experimento el problema cambia con $p$, así que $T(p)$ y $T(1)$ corresponden a problemas
-distintos. El speedup y la eficiencia se escalan por el trabajo, $W=3\,\mte\ntr d$:
+En este experimento el problema cambia con $p$. Las definiciones de la Unidad~6.2 son
+$S(n,p)=T_s(n)/T_p(n,p)$ y $E(n,p)=T_s(n)/\big(p\,T_p(n,p)\big)$, con $T_s(n)$ el tiempo secuencial
+\emph{del mismo problema}~\cite{fiestasU62}. Como $W=T_s$ y el cómputo es proporcional a
+$W=3\,\mte\ntr d$, $T_s(n)$ se obtiene del tiempo medido con $p=1$ en el caso base,
+$T_s(n)=T(1)\,W(p)/W(1)$, y:
 \begin{equation}
   S(p)=\frac{W(p)}{W(1)}\,\frac{T(1)}{T(p)},\qquad E(p)=\frac{S(p)}{p}.\label{eq:s-escalado}
 \end{equation}
@@ -798,6 +848,19 @@ Beta~3 con $\ntr=40$k, el cómputo pasa de $0.555$\,s a $11.84$\,s: $\Tcomp(16)/
 prácticamente igual a $4/E(16)=4/0.19$. Con la comunicación incluida, $\Ttot(16)/\Ttot(1)=21.4$. El
 paralelo sigue siendo más rápido que el secuencial: ese mismo problema tardaría $\sim$35.5\,s en un
 proceso frente a 11.9\,s con 16.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.62\textwidth]{isoeficiencia/k7_tiempo_total.png}
+\caption{Tiempo de ejecución total $\Ttot$ (distribución, cómputo, recolección y, en la variante
+DAG, fusión), medido en el proceso $0$. Mismas series que la Fig.~\ref{fig:iso-tiempos}.}
+\label{fig:iso-total}
+\end{figure}
+
+El tiempo de ejecución total (Fig.~\ref{fig:iso-total}) sigue al de cómputo: la diferencia
+$\Ttot-\Tcomp$, que es lo que la comunicación y la fusión añaden al camino crítico, es como máximo
+el 4.5\,\% de $\Ttot$. Las tres magnitudes pedidas (ejecución, cómputo y comunicación) se presentan
+en las Figs.~\ref{fig:iso-total}, \ref{fig:iso-tiempos} y \ref{fig:iso-comm}.
 
 \subsection{Speedup}
 \begin{figure}[H]
@@ -872,160 +935,146 @@ en $\sim$45--51\,GFLOP/s; con $p=16$ cada proceso rinde $\sim$3\,GFLOP/s.
 \label{fig:iso-comm}
 \end{figure}
 
-La comunicación es casi siempre del 0.5 al 6\,\% de $\Ttot$; el único valor alto es la variante DAG
-con $\mte=10$k y $p=8$ (16\,\%), un punto aislado. La comunicación, que es lo que la condición de
-isoeficiencia controla, no es la causa de la caída de eficiencia.
+En 26 de los 30 puntos, $\Tcomm$ es a lo sumo el 5.1\,\% de $\Ttot$. Los cuatro valores altos son
+la variante DAG con $\mte=10$k y $p=8$ (16\,\%) y, con $p=16$, la Beta~3 con $\ntr=10$k (9.5\,\%), la
+variante DAG con $\mte=10$k (9.4\,\%) y la Beta~3 con $\ntr=20$k (6.0\,\%). En los cuatro, casi todo
+$\Tcomm$ es el \texttt{Gather} (0.14--0.32\,s), mientras que la difusión y el reparto suman menos de
+0.04\,s. Como $\Tcomm$ es la
+suma de los máximos de cada fase entre procesos, el máximo del \texttt{Gather} incluye la
+\emph{espera} de los procesos que terminan su cómputo antes que el más lento (desbalance de carga),
+no sólo la transferencia. Por eso $\Tcomm$ y $\Tcomp$ no suman $\Ttot$: en esos mismos puntos
+$\Ttot-\Tcomp$ es apenas el 0.5--2\,\%, y en ningún punto supera el 4.5\,\%. La comunicación, que es
+lo que la condición de isoeficiencia controla, no es la causa de la caída de eficiencia.
 
 \subsection{Por qué no se conserva la eficiencia}
 \label{sec:debil}
 Las proporcionalidades $\mte\propto p\log p$ (Beta~3) y $\ntr\propto p\log p$ (variante DAG) sólo
-compensan la sobrecarga de \textbf{comunicación} del modelo en árbol. En este nodo la sobrecarga
-dominante es otra. Las razones, de mayor a menor importancia:
+compensan la parte de $T_o$ debida a la \textbf{comunicación} en árbol. En este nodo la sobrecarga
+dominante es otra:
 
 \begin{enumerate}
-  \item \textbf{La condición sólo compensa la comunicación, y la comunicación es pequeña.} Las
-        Ecs.~\eqref{eq:iso-beta3}--\eqref{eq:iso-dag} suponen que $T_o$ son sólo las colectivas,
-        pero éstas pesan del 0.5 al 6\,\% (Fig.~\ref{fig:iso-comm}). Hay otra sobrecarga mucho mayor
-        que la condición no contempla.
-  \item \textbf{El cómputo se vuelve más lento al añadir procesos.} El análisis de isoeficiencia
-        supone que cada FLOP cuesta lo mismo, $k_1$ s/FLOP con cualquier $p$. En la medición, el
-        rendimiento por proceso cae de 14--19\,GFLOP/s con $p=1$ a $\sim$3\,GFLOP/s con $p=16$,
-        porque el agregado se estanca en $\sim$50\,GFLOP/s (Fig.~\ref{fig:iso-gflops}). En el modelo
-        de la Sec.~\ref{sec:popt} esto es el término $k_2W(1-1/p)$: una sobrecarga
-        \textbf{proporcional al trabajo}, así que ningún crecimiento del problema la compensa y no
-        existe una función de isoeficiencia que la absorba.
-  \item \textbf{El tamaño fijo no influye.} Si el límite fuera la comunicación, las series con
-        $\ntr$ o $\mte$ fijo mayor tendrían más eficiencia. En la Tabla~\ref{tab:iso} las tres
-        series coinciden ($E(16)=0.18$--$0.19$ y $0.16$), lo que confirma una sobrecarga
-        proporcional a $W$.
-  \item \textbf{El cálculo está limitado por la memoria, no por la aritmética.} Después del
-        producto matricial hay varias pasadas sobre la matriz de distancias (normas, \texttt{maximum},
-        \texttt{sqrt}, \texttt{argpartition}) con muy pocas operaciones por byte. En la Beta~3 cada
-        proceso recorre $\Xtr$ completo (20\,MB con $\ntr=40$k) por cada bloque de 256 consultas y
-        escribe una matriz de distancias de $256\,\ntr\cdot8$\,B ($\sim$80\,MB); en la variante DAG
-        cada proceso lee todas las consultas y escribe $\mte\times n_i$ distancias. Ninguna cabe en
-        caché, y todos los procesos comparten los canales de memoria del nodo: es el cuello de
-        botella de von Neumann~\cite{backus1978}.
-  \item \textbf{Dentro de un nodo la comunicación no sigue el modelo en árbol.} Un microbenchmark de
-        colectivas en Khipu mostró que el \texttt{Bcast} crece linealmente,
-        $(p-1)(\alpha+M\beta)$ ($R^2=0.997$, frente a $0.864$ del árbol): en memoria compartida las
-        $p-1$ copias compiten por el mismo bus. Con ese modelo la condición sería
-        $\mte\propto p^2$ (Beta~3) y $\ntr\propto p^2$ (DAG), no $p\log p$. Es una causa secundaria,
-        porque la comunicación pesa poco, pero la condición aplicada se queda corta incluso para la
-        comunicación.
-  \item \textbf{Con $p=16$ se usan los dos sockets (NUMA).} Con $p\le8$ todos los procesos están en
-        el socket~0; con $p=16$, la mitad está en el socket~1. Los datos parten de la memoria del
-        proceso raíz y las copias cruzan entre sockets, con más latencia y tráfico.
-  \item \textbf{El punto de referencia $p=1$ es favorable.} Un proceso aislado dispone de toda la
-        caché L3 del socket (22\,MB), de todo el ancho de banda de memoria y de la mayor frecuencia
-        turbo. Como $E$ se mide respecto de $T(1)$, cualquier recurso compartido la reduce.
-  \item \textbf{Posible baja de frecuencia con muchos núcleos activos} (hipótesis no medida). En el
-        Xeon Gold~6130 la frecuencia turbo disminuye al aumentar los núcleos activos, más aún con
-        instrucciones AVX-512, que BLAS suele usar.
-  \item \textbf{Partes seriales y esperas} (menores). La fusión de candidatos de la variante DAG en
-        la raíz, $O(\mte\,p\,k)$, el cálculo de la exactitud y la espera por el proceso más lento
-        suman sólo unos pocos puntos porcentuales (Fig.~\ref{fig:iso-comm}).
+  \item \textbf{La comunicación es pequeña.} Las Ecs.~\eqref{eq:iso-beta3}--\eqref{eq:iso-dag}
+        suponen que $T_o$ son sólo las colectivas, pero éstas añaden a lo sumo el 4.5\,\% de $\Ttot$
+        al camino crítico (Sec.~\ref{sec:comm}).
+  \item \textbf{El cómputo se vuelve más lento al añadir procesos.} El análisis supone que cada FLOP
+        cuesta lo mismo con cualquier $p$. En la medición, el rendimiento por proceso cae de
+        14--19\,GFLOP/s con $p=1$ a $\sim$3\,GFLOP/s con $p=16$, porque el agregado se estanca en
+        $\sim$50\,GFLOP/s (Fig.~\ref{fig:iso-gflops}). Esa pérdida es parte de $T_o$
+        (``cómputo adicional a $T_s$'' en la definición de la Unidad~6.2~\cite{fiestasU62}) y crece
+        en proporción al trabajo; si $T_o\propto W$, la Ec.~\eqref{eq:iso-curso} no tiene solución
+        y ningún crecimiento del problema la compensa. Por eso las tres series de cada versión
+        coinciden (Tabla~\ref{tab:iso}): el tamaño fijo no cambia la eficiencia.
+  \item \textbf{El cálculo está limitado por la memoria (cuello de botella de von Neumann).} Después
+        del producto matricial hay varias pasadas sobre la matriz de distancias (normas,
+        \texttt{maximum}, \texttt{sqrt}, \texttt{argpartition}) con muy pocas operaciones por byte. En
+        la Beta~3 cada proceso recorre $\Xtr$ completo (20\,MB con $\ntr=40$k) por cada bloque de 256
+        consultas y escribe $256\,\ntr\cdot8$\,B ($\sim$80\,MB) de distancias. Nada de esto cabe en
+        caché y todos los procesos comparten los canales de memoria del nodo; la Unidad~2.1 indica
+        que el acceso a memoria se mide en GB/s y el cómputo en GFLOP/s~\cite{fiestasU21}, y aquí
+        limita lo primero~\cite{fiestasU1,backus1978}.
+  \item \textbf{Dentro de un nodo el \texttt{Bcast} es lineal, no en árbol.} El microbenchmark de
+        colectivas ajusta mejor el modelo lineal, $(p-1)(\alpha+M\beta)$ ($R^2=0.997$), que el de
+        árbol, $\log_2p\,(\alpha+M\beta)$ ($R^2=0.864$), ambos de la Unidad~2~\cite{fiestasU2}: en
+        memoria compartida las $p-1$ copias compiten por el mismo bus. Es secundario porque la
+        comunicación pesa poco.
+  \item \textbf{Con $p=16$ se usan los dos sockets.} Con $p\le8$ todos los procesos están en el
+        socket~0; con $p=16$, la mitad está en el socket~1 y las copias de datos cruzan entre sockets.
 \end{enumerate}
 
-En resumen, $\mte\propto p\log p$ y $\ntr\propto p\log p$ son las condiciones correctas para que la
-\emph{comunicación en árbol} no degrade la eficiencia, pero en un nodo de memoria compartida la
-sobrecarga dominante es la saturación del ancho de banda de memoria, que crece con el trabajo y no
-se amortiza al agrandar el problema. En un clúster de varios nodos, cada nodo aporta su propio
-ancho de banda de memoria y las colectivas siguen el modelo en árbol: ése es el escenario en el que
-las proporcionalidades de la Sec.~\ref{sec:proporcionalidad} deberían mantener la eficiencia
-(Sec.~\ref{sec:mejoras}).
-
-\subsection{Modelo de cómputo y número óptimo de procesos}
-\label{sec:popt}
-\paragraph{Modelo.} La saturación de la Fig.~\ref{fig:iso-gflops} se describe con dos constantes:
+\subsection{Normalización de la expresión teórica}
+\label{sec:normalizacion}
+La Ec.~\eqref{eq:tp} es asintótica: da la forma de $T_p(p)$, pero no su valor en segundos. Para
+superponerla a las mediciones, cada término $O(\cdot)$ se reemplaza por su número de operaciones
+multiplicado por un factor de proporcionalidad medido en Khipu:
+\begin{itemize}
+  \item \textbf{Cómputo.} Se cuenta el trabajo de la región paralelizable en FLOPs,
+        $W=3\,\mte\ntr d$ (Ec.~\eqref{eq:flops}), y se escribe $\Tcomp=k_1\,W/p$ (Brent con
+        $p\le\mte$, Ec.~\eqref{eq:tcomp}). Desde la Beta~2 la selección usa \texttt{argpartition},
+        $O(\ntr)$, por lo que el término $\ntr\log\ntr$ de la Ec.~\eqref{eq:tpred} desaparece y el
+        cálculo de distancias, $O(\ntr d)$, es el único que importa. El factor
+        $k_1=\Tcomp(1)/W(1)$ [s/FLOP] se mide con $p=1$ en cada serie y es el inverso de los FLOP/s de
+        un proceso aislado ($k_1\approx5$--$7\times10^{-11}$\,s/FLOP, es decir 14--19\,GFLOP/s).
+  \item \textbf{Comunicación.} En las Ecs.~\eqref{eq:tbcast}--\eqref{eq:tgather} (Beta~3) y
+        \eqref{eq:tdag} (variante DAG) se usan $\alpha$ y $\beta$ medidos con un microbenchmark de
+        colectivas sin cómputo, ajustado por mínimos cuadrados al modelo en árbol:
+        $\beta_{\text{Bcast}}=5.5\times10^{-9}$, $\beta_{\text{Scatter}}=1.26\times10^{-9}$ y
+        $\beta_{\text{Gather}}=2.26\times10^{-9}$\,s/palabra, y $\alpha_{\text{Gather}}=1.3\times10^{-4}$\,s
+        (las latencias de \texttt{Bcast} y \texttt{Scatter} se ajustan a 0).
+\end{itemize}
+Así, la expresión teórica normalizada es
 \begin{equation}
-  \Tcomp(p)=k_1\,\frac{W}{p}+k_2\,W\Big(1-\frac{1}{p}\Big),\qquad W=3\,\mte\ntr d .
-  \label{eq:modelo-k}
+  T_p^{\text{teo}}(p)=k_1\,\frac{3\,\mte\ntr d}{p}+\Tcomm^{\text{teo}}(p),
+  \label{eq:tp-norm}
 \end{equation}
-Con $p=1$, $\Tcomp=k_1W$: $F_1=1/k_1$ es el rendimiento de un proceso aislado. Con $p\to\infty$,
-$\Tcomp\to k_2W$: $F_{\max}=1/k_2$ es el techo del nodo saturado. El término $k_2W(1-1/p)$ es la
-sobrecarga por recursos compartidos, proporcional al trabajo. De la Ec.~\eqref{eq:modelo-k}
-\begin{equation}
-  E(p)=\frac{k_1W}{p\,\Tcomp(p)}=\frac{1}{1+(p-1)\,k_2/k_1},\qquad
-  S(p)=p\,E(p)\xrightarrow[p\to\infty]{}\frac{k_1}{k_2}=\frac{F_{\max}}{F_1}.
-  \label{eq:modelo-e}
-\end{equation}
-La eficiencia no depende de $W$: el modelo explica por qué las tres series de cada versión
-coinciden. $k_1$ y $k_2$ se ajustan por mínimos cuadrados no negativos sobre los 15 puntos
-$(p,\ntr,\mte)$ de cada versión, minimizando el error relativo.
+sin ningún parámetro ajustado a los propios tiempos paralelos: $k_1$ sale de $p=1$ y $\alpha$,
+$\beta$ del microbenchmark. La Fig.~\ref{fig:iso-modelo} la superpone a las mediciones.
 
-\begin{table}[H]
+\begin{figure}[H]
 \centering
-\caption{Constantes del modelo de cómputo (Ec.~\ref{eq:modelo-k}) y número óptimo de procesos.}
-\label{tab:modelo-k}
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{lccccccc}
-\toprule
-Versión & $k_1$ [s/FLOP] & $k_2$ [s/FLOP] & $F_1=1/k_1$ & $F_{\max}=1/k_2$ & Error rel. &
-$E(16)$ modelo / medido & $p^*=k_1/k_2$\\
-\midrule
-Beta 3 & $6.34\times10^{-11}$ & $1.76\times10^{-11}$ & 15.8\,GF/s & 57.0\,GF/s & 7.9\,\% & 0.19 / 0.18--0.19 & \textbf{3.6}\\
-DAG    & $4.62\times10^{-11}$ & $1.58\times10^{-11}$ & 21.7\,GF/s & 63.1\,GF/s & 10.4\,\% & 0.16 / 0.16 & \textbf{2.9}\\
-\bottomrule
-\end{tabular}}
-\end{table}
+\includegraphics[width=\textwidth]{isoeficiencia/k6_modelo.png}
+\caption{(a) $\Ttot$ medido para las series más grandes ($\ntr=40$k en la Beta~3, $\mte=40$k en la
+variante DAG) y la expresión teórica normalizada (Ec.~\eqref{eq:tp-norm}, punteada). (b) Eficiencia
+medida de las seis series y la eficiencia que predice la misma expresión.}
+\label{fig:iso-modelo}
+\end{figure}
 
-\paragraph{Minimizar $T_p(p)$.} Sumando la comunicación de la Sec.~\ref{sec:complejidad},
-$T_p(p)=\Tcomp(p)+\Tcomm(p)$ con $\Tcomm=c\log_2p$ (árbol) o $c\,(p-1)$ (lineal), donde
-$c=\alpha+M\beta$. Derivando e igualando a cero:
+Con $p=1$ la expresión normalizada coincide con la medición (error $\le2$\,\%, el costo de la
+fusión y de la exactitud) y con $p=2$ la subestima un 7--14\,\%. Desde $p=4$ se separa cada vez más
+(30--36\,\% con $p=4$, 80--84\,\% con $p=16$): predice una eficiencia de 0.95--0.97 con cualquier $p$,
+es decir, la condición de la Sec.~\ref{sec:proporcionalidad} cumple su objetivo para la
+comunicación, mientras que la eficiencia medida cae hasta $0.16$--$0.19$. La teoría valida la forma
+del algoritmo (el cómputo domina y la comunicación es pequeña), y la diferencia cuantifica la
+sobrecarga que la complejidad asintótica no incluye: $k_1$ no es constante, porque cada FLOP cuesta
+más cuantos más procesos comparten la memoria del nodo (Sec.~\ref{sec:debil}).
+
+\subsection{Número óptimo de procesos}
+\label{sec:popt}
+\paragraph{Óptimo teórico.} Como en el ejercicio de la Unidad~6.2~\cite{fiestasU62}, se minimiza
+$T_p(p)$. Con la Ec.~\eqref{eq:tp-norm}, $T_p(p)=k_1W/p+c\,g(p)$, donde $c=\alpha+M\beta$ es el
+costo de un \texttt{Bcast} de $M$ palabras y $g(p)=\log_2p$ (árbol) o $g(p)=p-1$ (lineal).
+Derivando e igualando a cero:
 \begin{equation}
-  p^*_{\text{árbol}}=\frac{(k_1-k_2)\,W\ln2}{c},\qquad
-  p^*_{\text{lineal}}=\sqrt{\frac{(k_1-k_2)\,W}{c}} .
+  p^*_{\text{árbol}}=\frac{k_1\,W\ln2}{c},\qquad
+  p^*_{\text{lineal}}=\sqrt{\frac{k_1\,W}{c}} .
   \label{eq:popt-min}
 \end{equation}
 Para el problema más grande de la Beta~3 ($\ntr=40$k, $\mte=64$k: $W=4.9\times10^{11}$\,FLOP,
-$M=\ntr(d+1)+\mte d+\mte=6.8\times10^6$ palabras) se obtiene $p^*\approx420$ con el árbol y
-$p^*\approx52$ con el modelo lineal medido. Ambos están muy por encima de los 16 núcleos: como la
-comunicación pesa poco, $T_p$ sigue bajando con $p$ dentro del nodo, pero tiende a la asíntota
-$k_2W$ y la ganancia se anula. El mínimo de $T_p$ no da un óptimo útil.
+$M=\ntr(d+1)+\mte d+\mte=6.8\times10^6$ palabras, $k_1=7.2\times10^{-11}$\,s/FLOP) se obtiene
+$p^*\approx660$ con el árbol ($\beta=5.5\times10^{-9}$\,s/palabra, $c\approx0.037$\,s) y
+$p^*\approx65$ con el modelo lineal ($\beta=1.23\times10^{-9}$\,s/palabra por copia,
+$c\approx0.008$\,s). Ambos están muy por encima de los 16 núcleos disponibles, porque la teoría sólo
+cuenta la comunicación como sobrecarga.
 
-\paragraph{Óptimo práctico: el punto de saturación.} El criterio útil es el punto en que el
-rendimiento ideal $p\,F_1$ alcanza el techo $F_{\max}$:
-\begin{equation}
-  p^*=\frac{F_{\max}}{F_1}=\frac{k_1}{k_2}\approx3.6\ \text{(Beta 3)},\quad 2.9\ \text{(DAG)} .
-  \label{eq:popt}
-\end{equation}
-Con los valores medidos directamente, $F_{\max}/F_1=46.1/14.5=3.2$ (Beta~3) y $51.6/18.8=2.7$ (DAG).
-Por la Ec.~\eqref{eq:modelo-e}, en $p=1+k_1/k_2\approx4$--$5$ la eficiencia vale exactamente $0.5$, y
-el speedup máximo alcanzable es $S_{\max}=k_1/k_2\approx3$--$4$. Más allá de $p^*$ cada proceso añade
-muy poco: de $p=4$ a $p=16$ se cuadruplican los recursos y el speedup de la Beta~3 sólo pasa de 2.7
-a 3.0. \textbf{El número óptimo de procesos en este nodo es $p^*\approx3$--$4$.}
+\paragraph{Óptimo medido.} Con el criterio de la Unidad~6.2, que compara $S$ y $E$ para cada $p$, el
+óptimo es el $p$ a partir del cual añadir procesos ya no reduce el tiempo. En la Tabla~\ref{tab:iso}
+el speedup de la Beta~3 es máximo con $p=8$ en las tres series ($S=2.87$--$3.19$) y con $p=16$ no
+mejora ($S=2.84$--$3.10$); el de la variante DAG se estanca entre $p=4$ y $p=8$ ($S=2.5$--$2.7$).
+\textbf{El número óptimo de procesos en este nodo es $p^*=8$} para la Beta~3 y de 4 a 8 para la
+variante DAG, con eficiencias de 0.34--0.40 y 0.33--0.68. Pasar de 8 a 16 procesos duplica los
+recursos sin reducir el tiempo.
 
 \subsection{Mejoras propuestas}
 \label{sec:mejoras}
 Como el límite es el tráfico de memoria y no la comunicación, las mejoras con más impacto son las
-que reducen los bytes por FLOP del cómputo local, es decir, las que suben $F_{\max}=1/k_2$ y con ello
-$p^*=k_1/k_2$:
+que reducen los bytes movidos por FLOP en el cómputo local:
 \begin{enumerate}
   \item \textbf{Eliminar la raíz cuadrada.} La raíz es monótona, así que los $k$ vecinos se pueden
         elegir sobre $\|q-x\|^2$. Se ahorra una pasada completa sobre la matriz de distancias.
   \item \textbf{Usar \texttt{float32}.} Los píxeles son enteros entre 0 y 16, representables
-        exactamente; se reduce a la mitad el tráfico de memoria y se duplica el ancho de las
-        instrucciones vectoriales.
-  \item \textbf{Bloqueo por caché y selección incremental.} Recorrer $\Xtr$ en bloques que quepan en
-        la caché L2 (1\,MB) y mantener un top-$k$ parcial por consulta, en lugar de materializar la
-        matriz de $b\times\ntr$ distancias ($\sim$80\,MB). Esto aumenta la intensidad aritmética del
-        cálculo.
-  \item \textbf{Una sola copia de $\Xtr$ por nodo (Beta~3).} Con ventanas de memoria compartida de
-        MPI-3 (\texttt{MPI\_Win\_allocate\_shared}), los procesos de un nodo leen la misma copia: se
-        elimina el \texttt{Bcast} lineal dentro del nodo y la memoria ocupada deja de crecer con $p$.
+        exactamente; se reduce a la mitad el tráfico de memoria.
+  \item \textbf{Bloqueo por caché.} Recorrer $\Xtr$ en bloques que quepan en la caché y mantener un
+        top-$k$ parcial por consulta, en lugar de materializar la matriz de $b\times\ntr$ distancias
+        ($\sim$80\,MB).
   \item \textbf{Fusión de candidatos en árbol (variante DAG).} Un \texttt{MPI\_Reduce} con un operador
         propio que combine los top-$k$ de dos procesos reemplaza el \texttt{Gather} de $\mte\,k\,p$
         pares y la fusión serial $O(\mte\,p\,k)$ por $O(\mte\,k\log p)$.
-  \item \textbf{Colocación consciente de NUMA.} Repartir los procesos y los datos por socket, de modo
-        que cada socket trabaje con su propia memoria.
-  \item \textbf{Escalar con varios nodos.} Usar $p^*\approx3$--$4$ procesos por nodo y aumentar el
-        número de nodos: cada nodo aporta su propio ancho de banda de memoria, las colectivas siguen
-        el modelo en árbol y las condiciones de isoeficiencia de la
-        Sec.~\ref{sec:proporcionalidad} vuelven a ser las relevantes.
+  \item \textbf{Escalar con varios nodos (paralelismo híbrido).} Usar $p^*\approx8$ procesos por nodo
+        y aumentar el número de nodos~\cite{fiestasU4}: cada nodo aporta su propio ancho de banda de
+        memoria y las colectivas entre nodos siguen el modelo en árbol.
   \item \textbf{Comunicación no bloqueante} (menor). \texttt{MPI\_Ibcast} e
-        \texttt{MPI\_Iscatterv} permiten solapar la distribución con el inicio del cómputo; el
-        efecto es pequeño porque la comunicación pesa menos del 6\,\%.
+        \texttt{MPI\_Iscatterv}~\cite{fiestasU3} permiten solapar la distribución con el inicio del
+        cómputo; el efecto es pequeño porque la comunicación añade a lo sumo el 4.5\,\% al tiempo
+        total.
 \end{enumerate}
 
 % ============================================================================
@@ -1036,25 +1085,25 @@ $p^*=k_1/k_2$:
         \textbf{forall}~\ldots~\textbf{pardo}, en tres versiones beta y una variante con la
         descomposición del DAG del enunciado. Todas producen las mismas predicciones que el código
         secuencial y que scikit-learn.
+  \item La exactitud es $0.9833$ en \texttt{load\_digits} con cualquier $p$. En los datos
+        sintéticos sube de $0.989$ a $0.998$ al pasar de 1\,000 a 64\,000 puntos de entrenamiento,
+        y no depende del número de consultas ni de $p$.
   \item La vectorización (Beta~2) reduce el tiempo $\sim$230 veces, pero con colectivas
         \emph{pickle} la comunicación domina; las colectivas con buffers (Beta~3) restituyen el
         escalamiento. Con $p=8$ sobre \texttt{load\_digits} la Beta~3 es 967 veces más rápida que el
         código original.
-  \item Con el modelo de colectivas en árbol, la eficiencia de la Beta~3 se mantiene si
-        $\mte\propto p\log p$, y la de la variante DAG si $\ntr\propto p\log p$: cada descomposición
-        necesita que crezca el conjunto que \emph{distribuye}, porque el que difunde se cancela.
-  \item Aun cumpliendo esas proporcionalidades, la eficiencia cae de 1 a $0.16$--$0.19$ con $p=16$,
-        con independencia del tamaño fijo. La comunicación pesa menos del 6\,\%; la causa es la
-        saturación del rendimiento agregado del nodo en $\sim$50\,GFLOP/s, propia de un cálculo
-        limitado por el ancho de banda de memoria.
-  \item El modelo $\Tcomp=k_1W/p+k_2W(1-1/p)$ reproduce las mediciones con un error del 8--10\,\%
-        y predice $E(16)$ exactamente. El número óptimo de procesos es el punto de saturación,
-        $p^*=k_1/k_2=F_{\max}/F_1\approx3$--$4$; el mínimo de $T_p(p)$ por comunicación quedaría
-        en $p\approx52$--$420$, fuera del nodo. El paralelo sigue siendo $\sim$3 veces más rápido que
-        el secuencial para el mismo problema.
-  \item Las mejoras con más impacto son las que reducen el tráfico de memoria del cómputo local
-        (sin raíz cuadrada, \texttt{float32}, bloqueo por caché, una copia de $\Xtr$ por nodo) y el
-        uso de varios nodos con $p^*$ procesos cada uno.
+  \item Con la función de overhead de la Unidad~6.2 y colectivas en árbol, la eficiencia de la
+        Beta~3 se mantiene si $\mte\propto p\log p$, y la de la variante DAG si $\ntr\propto p\log p$.
+  \item Aun con ese crecimiento, la eficiencia cae de 1 a $0.16$--$0.19$ con $p=16$, con
+        independencia del tamaño. La comunicación añade a lo sumo el 4.5\,\% al tiempo total; la
+        causa es que el rendimiento agregado del nodo se satura en $\sim$50\,GFLOP/s, propio de un
+        cálculo limitado por el ancho de banda de memoria.
+  \item La expresión teórica normalizada ($k_1$ medido con $p=1$; $\alpha$ y $\beta$ del
+        microbenchmark) coincide con la medición con $p\le2$, pero subestima $\Ttot$ hasta un 84\,\%
+        con $p=16$, porque supone un costo por FLOP constante.
+  \item Minimizar $T_p$ da $p^*\approx65$--$660$, fuera del nodo; el óptimo medido es $p^*=8$ (Beta~3)
+        y 4--8 (variante DAG): con más procesos el tiempo ya no baja. Las mejoras con más impacto
+        reducen el tráfico de memoria del cómputo local y reparten el trabajo entre varios nodos.
 \end{enumerate}
 
 % ============================================================================
@@ -1064,50 +1113,39 @@ Esta sección detalla qué fuente se empleó, su propósito en el desarrollo y s
 el informe.
 
 \subsection{Material del curso}
-El material de clase de Fiestas~\cite{fiestasU1,fiestasU2,fiestasU21,fiestasU22,fiestasU3} define el
-marco teórico y la notación de todo el trabajo:
+Todas las fórmulas del análisis provienen del material de clase de
+Fiestas~\cite{fiestasU1,fiestasU2,fiestasU21,fiestasU22,fiestasU3,fiestasU4,fiestasU62}:
 \begin{itemize}
-  \item De la Unidad~1 provienen las definiciones de trabajo $W$ y \emph{span} $T_\infty$ y el modelo
-        DAG~\cite{fiestasU1}, que fundamentan el análisis de dependencia entre consultas, y el cuello
-        de botella de von Neumann usado para explicar la saturación del rendimiento.
-  \item De la Unidad~2 provienen los modelos de ``Comunicación lineal'' y ``Comunicación en árbol
-        (binario)''~\cite{fiestasU2}, base de las condiciones de isoeficiencia de la
-        Sec.~\ref{sec:proporcionalidad}.
-  \item De la Unidad~2.1 provienen las definiciones formales de \emph{speedup}, eficiencia, FLOPs,
-        las leyes de Amdahl y Gustafson y los criterios de escalabilidad fuerte y
-        débil~\cite{fiestasU21}.
-  \item De la Unidad~2.2--2.3 provienen la clasificación del modelo PRAM (específicamente CREW), el
-        formalismo \texttt{pardo}, el teorema de Brent~\cite{brent1974} y la transición hacia
-        modelos con red de interconexión~\cite{fiestasU22}.
-  \item De la Unidad~3 provienen la semántica de paso de mensajes y las operaciones colectivas de
-        MPI (\texttt{Bcast}, \texttt{Scatter(v)} y \texttt{Gather(v)})~\cite{fiestasU3},
-        contrastadas con la literatura estándar de sistemas distribuidos~\cite{pacheco2011,quinn2003}.
+  \item \textbf{Unidad~1}~\cite{fiestasU1}: trabajo $W$, \emph{span} $T_\infty$ y modelo DAG, que
+        fundamentan la independencia entre consultas (Sec.~\ref{sec:complejidad}); cuello de botella
+        de von Neumann, usado para explicar la saturación del rendimiento (Sec.~\ref{sec:debil}).
+  \item \textbf{Unidad~2}~\cite{fiestasU2}: modelos de comunicación lineal y en árbol
+        ($\alpha$--$\beta$), base de las Ecs.~\eqref{eq:tbcast}--\eqref{eq:tcomm} y \eqref{eq:tdag}
+        y del óptimo teórico de la Sec.~\ref{sec:popt}.
+  \item \textbf{Unidad~2.1}~\cite{fiestasU21}: \emph{speedup}, eficiencia y FLOP/s
+        (Ecs.~\eqref{eq:speedup}, \eqref{eq:eff} y \eqref{eq:flops}).
+  \item \textbf{Unidades~2.2--2.3}~\cite{fiestasU22}: modelo PRAM CREW, formalismo \texttt{pardo} y
+        teorema de Brent (Ec.~\eqref{eq:brent}).
+  \item \textbf{Unidad~3}~\cite{fiestasU3}: operaciones colectivas de MPI (\texttt{Bcast},
+        \texttt{Scatter(v)}, \texttt{Gather(v)}) y comunicación no bloqueante.
+  \item \textbf{Unidad~4}~\cite{fiestasU4}: paralelismo híbrido entre nodos, propuesto como mejora.
+  \item \textbf{Unidad~6.2}~\cite{fiestasU62}: función de overhead $T_o=p\,T_p-W$, condición
+        $W=K\,T_o$ para eficiencia constante (Ec.~\eqref{eq:iso-curso}), que define el crecimiento
+        del problema en el experimento, y cálculo de la cantidad óptima de procesos minimizando
+        $T_p$.
 \end{itemize}
 
-\subsection{Literatura científica}
+\subsection{Literatura científica y documentación técnica}
 \begin{itemize}
-  \item Fix y Hodges~\cite{fix1951} y Cover y Hart~\cite{cover1967}: fundamentan formalmente el
-        clasificador KNN y su naturaleza no paramétrica, la cual concentra todo el esfuerzo
-        computacional en la fase de consulta y habilita la descomposición de datos.
-  \item JáJá~\cite{jaja1992} y Brent~\cite{brent1974}: aportan el marco de algoritmos paralelos en
-        memoria compartida (PRAM CREW) y la cota de tiempo paralelo en función del número de
-        procesadores $p$ (Ec.~\eqref{eq:brent}).
-  \item Valiant~\cite{valiant1990} y Culler et al.~\cite{culler1993}: proveen la motivación
-        conceptual de los modelos BSP y LogP, justificando la necesidad de incorporar penalizaciones
-        explícitas por comunicación.
-  \item Grama et al.~\cite{grama2003} y Thakur, Rabenseifner y Gropp~\cite{thakur2005}: costo de las
-        colectivas en árbol y función de isoeficiencia (Sec.~\ref{sec:proporcionalidad}),
-        contrastados con nuestras mediciones (Sec.~\ref{sec:debil}).
-  \item Foster~\cite{foster1995}: metodología PCAM aplicada para estructurar el
-        Algoritmo~\ref{alg:knn-mpi}.
-  \item Amdahl~\cite{amdahl1967}, Gustafson~\cite{gustafson1988} y Flynn~\cite{flynn1972}:
-        clasificación MIMD/SPMD del sistema y análisis de escalabilidad fuerte y débil.
-  \item Backus~\cite{backus1978}: formulación del cuello de botella de von Neumann.
-  \item Aparicío, Blanquer y Hernández~\cite{aparicio2007}: validan la estrategia de replicar $\Xtr$
-        y repartir las consultas; Patwary et al.~\cite{patwary2016} y Xiao y Biros~\cite{xiao2016}:
-        cuellos de botella de KNN distribuido a gran escala.
+  \item Fix y Hodges~\cite{fix1951} y Cover y Hart~\cite{cover1967}: definen el clasificador KNN y su
+        naturaleza no paramétrica, que concentra el cómputo en la fase de consulta.
+  \item JáJá~\cite{jaja1992} y Brent~\cite{brent1974}: fuentes originales del modelo PRAM y de la
+        cota de Brent presentados en la Unidad~2.2.
+  \item Backus~\cite{backus1978}: formulación original del cuello de botella de von Neumann.
   \item Documentación técnica: mpi4py~\cite{mpi4pydoc,dalcin2021}, NumPy~\cite{harris2020},
-        scikit-learn~\cite{pedregosa2011} y la biblioteca estándar de Python~\cite{pythoncounter}.
+        scikit-learn~\cite{pedregosa2011} (validación de las predicciones y conjunto
+        \texttt{load\_digits}~\cite{alpaydin1998}) y la biblioteca estándar de
+        Python~\cite{pythoncounter}.
 \end{itemize}
 
 \subsection{Uso de herramientas de asistencia y modelos de lenguaje}
