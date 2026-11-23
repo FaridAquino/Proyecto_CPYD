@@ -36,6 +36,9 @@ temp*/
 *.fls
 *.fdb_latexmk
 *.xdv
+*.nav
+*.snm
+*.vrb
 
 # ---------------- Sistema / editores
 .DS_Store
