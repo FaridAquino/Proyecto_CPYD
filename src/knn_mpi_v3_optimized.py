@@ -139,6 +139,8 @@ def main():
     ap.add_argument("--k", type=int, default=3)
     ap.add_argument("--block", type=int, default=256)
     ap.add_argument("--reps", type=int, default=3)
+    ap.add_argument("--warmup", type=int, default=1,
+                    help="ejecuciones de calentamiento descartadas antes de medir")
     ap.add_argument("--csv", default=None, help="CSV de salida (append)")
     ap.add_argument("--tag", default="", help="etiqueta del experimento")
     ap.add_argument("--test-data", default=None,
@@ -178,6 +180,11 @@ def main():
         writer = csv.DictWriter(fh, fieldnames=CSV_FIELDS)
         if new:
             writer.writeheader()
+
+    # Calentamiento: inicializa colectivas, memoria compartida de MPI, BLAS y cachés.
+    # En corridas de < 1 s la primera medición llega a ser varias veces más lenta.
+    for _ in range(args.warmup):
+        run_once(comm, X_train, y_train, X_test, meta, args.k, args.block)
 
     for rep in range(args.reps):
         y_pred, t_total, tmax, tcomp_min = run_once(
