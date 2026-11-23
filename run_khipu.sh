@@ -1,7 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=knn-mpi
 #SBATCH --nodes=1
-#SBATCH --ntasks=32
+#SBATCH --partition=standard
+#SBATCH --ntasks=16               # QOS de usuario: máx. 32 CPUs = 16 tareas x 2 CPUs
 #SBATCH --cpus-per-task=2         # SLURM cuenta hilos SMT: 2 CPUs = 1 núcleo físico completo
 #SBATCH --mem=64G                 # explícito: el valor por defecto de SLURM no alcanza (OOM)
 #SBATCH --time=02:00:00
@@ -63,7 +64,7 @@ MODE=${MODE:-quick}
 OUT=results/khipu/aumento_train
 OUT_TEST=results/khipu/aumento_test
 OUT_ISO=results/khipu/isoeficiencia
-S_LIST=${S_LIST:-"1 2 4 8 16 32"}
+S_LIST=${S_LIST:-"1 2 4 8 16"}
 N_LIST=${N_LIST:-"50000 100000 200000"}
 EXPS=${EXPS:-"versions strong weak-lin weak-work"}
 REPS=${REPS:-3}
