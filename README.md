@@ -49,8 +49,7 @@ Mediciones en el clúster Khipu (nodo con 2 × Intel Xeon Gold 6130, hasta 16 n�
 │   ├── isoeficiencia/                mediciones del experimento principal
 │   └── aumento_train/                registro de versiones (load_digits) y comm_bench.csv
 ├── figures/khipu/isoeficiencia/      k2–k8 (.png)
-├── run_khipu.sh                      script SLURM para Khipu
-└── PPT/                              presentación
+└── run_khipu.sh                      script SLURM para Khipu
 ```
 
 ## Reproducción en Khipu (SLURM)
