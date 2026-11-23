@@ -363,10 +363,12 @@ def tiempos_a(ax):
 
 
 def tiempos_b(ax):
-    strong_lines(ax, from_strong("T_total"))
+    # En iso se grafica sólo el cómputo (la comunicación se muestra aparte en k8).
+    col, lab = ("T_comp", r"T_{\mathrm{comp}}") if ISO else ("T_total", r"T_{\mathrm{total}}")
+    strong_lines(ax, from_strong(col))
     ax.set_yscale("log")
-    ax.set_ylabel(r"$T_{\mathrm{total}}$ [s] (log)")
-    ax.set_title("Tiempo")
+    ax.set_ylabel(rf"${lab}$ [s] (log)")
+    ax.set_title("Tiempo de cómputo" if ISO else "Tiempo")
 
 
 panels("k2_tiempos", tiempos_a, tiempos_b, height=3.2)
