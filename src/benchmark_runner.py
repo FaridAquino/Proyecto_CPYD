@@ -22,6 +22,18 @@ Experimento "aumento de train" con test FIJO (simétrico al anterior):
   strong-train n en --N-train (por defecto 50k, 100k, 200k) y m fijo en --m-test
                (por defecto 50k), s in S. Beta 3 y DAG. Mismos archivos que arriba.
 
+Experimentos de isoeficiencia (modelo de colectivas en árbol). Con Bcast en árbol la
+sobrecarga relativa de la Beta 3 es T_o/W ~ p log p / m (n se cancela), y la de la
+variante DAG, que difunde X_te, es ~ p log p / n. Para mantener E(p) constante:
+  iso-test   n_train fijo (--n-iso) y m = M0 * g(p)   -> condición de la Beta 3.
+  iso-train  m_test fijo (--m-iso)  y n = N0 * g(p)   -> condición de la variante DAG.
+  con g(p) = p * max(1, log2 p)  (g(1) = 1: con p = 1 no hay sobrecarga).
+Ambas versiones corren en ambos experimentos para contrastar las dos condiciones.
+
+Afinidad: la variable de entorno MPIEXEC_FLAGS se añade a cada mpiexec, p. ej.
+  MPIEXEC_FLAGS="--bind-to core --map-by core --report-bindings"   (Open MPI)
+Con --report-bindings el runner imprime el núcleo asignado a cada rango.
+
 El runner es reanudable: omite combinaciones (version, tag, s, N) que ya tienen
 las repeticiones pedidas en el CSV. Fija OMP/MKL/OPENBLAS_NUM_THREADS=1 para que
 cada proceso MPI use un solo núcleo, y guarda la información del sistema.
@@ -127,7 +139,12 @@ def done_reps(csv_path):
     return cnt
 
 
+MPIEXEC_FLAGS = os.environ.get("MPIEXEC_FLAGS", "").split()
+_last_stderr = ""
+
+
 def run(cmd, timeout):
+    global _last_stderr
     t0 = time.perf_counter()
     p = subprocess.run(cmd, cwd=HERE, env=child_env(), capture_output=True,
                        text=True, encoding="utf-8", errors="replace",
@@ -135,7 +152,29 @@ def run(cmd, timeout):
     if p.returncode != 0:
         print(p.stdout[-2000:], p.stderr[-2000:])
         raise RuntimeError(f"Falló: {' '.join(cmd)}")
+    _last_stderr = p.stderr
     return p.stdout, time.perf_counter() - t0
+
+
+_bindings_shown = set()
+
+
+def print_bindings(s):
+    """Con --report-bindings (Open MPI) muestra, una vez por s, el núcleo de cada rango
+    y avisa si dos rangos comparten núcleo."""
+    if "--report-bindings" not in MPIEXEC_FLAGS or s in _bindings_shown:
+        return
+    _bindings_shown.add(s)
+    lines = [l.strip() for l in _last_stderr.splitlines() if "MCW rank" in l]
+    for l in lines:
+        print(f"    {l}")
+    masks = [l.split(":", 2)[-1].strip() for l in lines]
+    if len(lines) != s:
+        print(f"    [afinidad] se esperaban {s} rangos y se reportaron {len(lines)}")
+    elif len(set(masks)) < s:
+        print(f"    [afinidad] AVISO: {s - len(set(masks))} rangos comparten núcleo")
+    else:
+        print(f"    [afinidad] {s} rangos en {s} núcleos distintos")
 
 
 def append_rows(csv_path, rows):
@@ -204,13 +243,14 @@ def run_csv_script(mpiexec, script, version, tag, s, data, N, reps, csv_path,
     missing = reps - have.get((version, tag, s, N), 0)
     if missing <= 0:
         return
-    cmd = [mpiexec, "-n", str(s), sys.executable, script, "--reps", str(missing),
-           "--csv", csv_path, "--tag", tag]
+    cmd = [mpiexec, "-n", str(s), *MPIEXEC_FLAGS, sys.executable, script,
+           "--reps", str(missing), "--csv", csv_path, "--tag", tag]
     if data:
         cmd += ["--data", data]
     if test_data:
         cmd += ["--test-data", test_data]
     out, wall = run(cmd, timeout)
+    print_bindings(s)
     last = [l for l in out.splitlines() if l.startswith(f"[{version}]")][-1]
     print(f"  {version:3s} {tag:9s} s={s:2d} N={N:>7d}  ({wall:6.1f}s)  {last.split('rep=')[1]}")
 
@@ -233,6 +273,11 @@ def exp_scaling(mpiexec, csv_path, kind, versions, s_list, N_values, N0, reps, t
                            csv_path, have, timeout)
 
 
+def iso_g(p):
+    """g(p) = p log2 p (isoeficiencia con colectivas en árbol); g(1) = 1."""
+    return int(round(p * max(1.0, math.log2(p))))
+
+
 def exp_test(mpiexec, csv_path, kind, versions, s_list, M_values, M0, n_train, reps, timeout,
              N_train_values=(), m_fixed=None):
     """Train y test en archivos separados.
@@ -244,6 +289,10 @@ def exp_test(mpiexec, csv_path, kind, versions, s_list, M_values, M0, n_train, r
         jobs = [(s, n_train, m) for m in M_values for s in s_list]
     elif kind == "weak-test":
         jobs = [(s, n_train, M0 * s) for s in s_list]
+    elif kind == "iso-test":                               # m = M0 g(p), n fijo
+        jobs = [(s, n_train, M0 * iso_g(s)) for s in s_list]
+    elif kind == "iso-train":                              # n = N0 g(p), m fijo
+        jobs = [(s, N_train_values[0] * iso_g(s), m_fixed) for s in s_list]
     else:                                                  # strong-train
         jobs = [(s, n, m_fixed) for n in N_train_values for s in s_list]
     for s, n, m in jobs:
@@ -290,7 +339,8 @@ def main():
     ap.add_argument("--exp", nargs="+",
                     default=["versions", "strong", "weak-lin", "weak-work"],
                     choices=["versions", "strong", "weak-lin", "weak-work",
-                             "strong-test", "weak-test", "strong-train"])
+                             "strong-test", "weak-test", "strong-train",
+                             "iso-test", "iso-train"])
     ap.add_argument("--versions", nargs="+", default=["v3", "dag"],
                     choices=["v3", "dag"])
     ap.add_argument("--s", type=int, nargs="+", default=S_FULL)
@@ -306,6 +356,10 @@ def main():
     ap.add_argument("--N-train", type=int, nargs="+", default=[50000, 100000, 200000],
                     help="tamaños de train n para strong-train")
     ap.add_argument("--m-test", type=int, default=50000, help="m fijo en strong-train")
+    ap.add_argument("--n-iso", type=int, default=10000, help="n fijo en iso-test")
+    ap.add_argument("--M0-iso", type=int, default=250, help="m = M0 g(p) en iso-test")
+    ap.add_argument("--m-iso", type=int, default=10000, help="m fijo en iso-train")
+    ap.add_argument("--N0-iso", type=int, default=250, help="n = N0 g(p) en iso-train")
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--out", default=RESULTS,
                     help="carpeta de resultados (p. ej. results/khipu)")
@@ -344,6 +398,13 @@ def main():
             exp_test(mpiexec, args.csv, exp, args.versions, args.s, args.M,
                      args.M0_test, args.n_train, args.reps, args.timeout,
                      N_train_values=args.N_train, m_fixed=args.m_test)
+        elif exp == "iso-test":
+            exp_test(mpiexec, args.csv, exp, args.versions, args.s, [],
+                     args.M0_iso, args.n_iso, args.reps, args.timeout)
+        elif exp == "iso-train":
+            exp_test(mpiexec, args.csv, exp, args.versions, args.s, [],
+                     None, None, args.reps, args.timeout,
+                     N_train_values=[args.N0_iso], m_fixed=args.m_iso)
         else:
             exp_scaling(mpiexec, args.csv, exp, args.versions, args.s, args.N,
                         args.N0_lin if exp == "weak-lin" else args.N0_work,
