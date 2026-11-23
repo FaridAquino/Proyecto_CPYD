@@ -205,7 +205,7 @@
                 {\footnotesize\color{UTECGray}Condiciones $m\propto p\log p$ y $n\propto p\log p$, entorno y errores corregidos.}
 
                 \item[] \textcolor{UTECDarkBlue}{\normalsize\bfseries 4. Resultados y conclusiones} \\
-                {\footnotesize\color{UTECGray}Tiempo, speedup, eficiencia y por qué no se conserva la eficiencia.}
+                {\footnotesize\color{UTECGray}Tiempo, speedup, eficiencia, por qué no se conserva, $p^*$ y mejoras.}
             \end{enumerate}
         \end{column}
 
@@ -539,7 +539,8 @@ $E=\dfrac{1}{1+T_o/W}$ es constante si la sobrecarga relativa $T_o/W$ es constan
         \cajaAcento{\linewidth}{%
             \encCaja{Lectura}
             El speedup crece hasta $p=4$--$8$ y se \textbf{estanca} en $\sim$2.5--3.2: con 16
-            procesos se obtiene lo mismo que con 8. Conviene usar \textbf{4--8 procesos}.
+            procesos se obtiene lo mismo que con 8. El óptimo se \textbf{calcula} con el modelo
+            de cómputo: $p^*\approx3$--$4$.
         }
     \end{column}
 \end{columns}
@@ -671,6 +672,82 @@ $E=\dfrac{1}{1+T_o/W}$ es constante si la sobrecarga relativa $T_o/W$ es constan
 \end{frame}
 
 % ------------------------------------------------------------------------------
+\begin{frame}{Modelo de cómputo y número óptimo de procesos}
+\footnotesize
+\begin{columns}[T,onlytextwidth]
+    \begin{column}{0.5\textwidth}
+        \cajaInfo{\linewidth}{%
+            \encCaja{Modelo con dos constantes}
+            \[ \Tcomp(p)=k_1\frac{W}{p}+k_2\,W\Big(1-\frac{1}{p}\Big) \]
+            $F_1=1/k_1$: un proceso aislado.\quad $F_{\max}=1/k_2$: techo del nodo.
+            \[ E(p)=\frac{1}{1+(p-1)\,k_2/k_1} \quad\text{(no depende de $W$)} \]
+        }\\[0.12cm]
+        \resizebox{\linewidth}{!}{%
+        \begin{tabular}{lcccc}
+        \toprule
+        & $F_1$ & $F_{\max}$ & Error & $p^*=k_1/k_2$\\
+        \midrule
+        Beta 3 & 15.8 GF/s & 57.0 GF/s & 7.9\,\% & \textbf{3.6}\\
+        DAG    & 21.7 GF/s & 63.1 GF/s & 10.4\,\% & \textbf{2.9}\\
+        \bottomrule
+        \end{tabular}}
+        \pieFig{Ajuste por mínimos cuadrados no negativos sobre 15 puntos por versión;
+        $E(16)$ predicho: 0.19 y 0.16, igual a lo medido.}
+    \end{column}
+    \begin{column}{0.46\textwidth}
+        \cajaAlert{\linewidth}{%
+            \encCaja{Minimizar $T_p(p)$ no sirve aquí}
+            Con la comunicación, $p^*_{\text{árbol}}=\frac{(k_1-k_2)W\ln2}{c}\approx420$ y
+            $p^*_{\text{lineal}}=\sqrt{\frac{(k_1-k_2)W}{c}}\approx52$ (problema más grande): muy por
+            encima de 16 núcleos. $T_p$ sólo tiende a la asíntota $k_2W$.
+        }\\[0.12cm]
+        \cajaOk{\linewidth}{%
+            \encCaja{Óptimo práctico: saturación}
+            \[ p^*=\frac{F_{\max}}{F_1}=\frac{k_1}{k_2}\approx\mathbf{3\text{--}4} \]
+            Medido directamente: $46.1/14.5=3.2$ y $51.6/18.8=2.7$. En $p\approx4$--$5$,
+            $E=0.5$; de $p=4$ a $16$ el speedup sólo pasa de 2.7 a 3.0.
+        }
+    \end{column}
+\end{columns}
+\end{frame}
+
+% ------------------------------------------------------------------------------
+\begin{frame}{Mejoras propuestas}
+\footnotesize
+\cajaAcento{\linewidth}{%
+    El límite es el tráfico de memoria: las mejoras con más impacto reducen los bytes por FLOP, suben
+    $F_{\max}=1/k_2$ y con ello $p^*=k_1/k_2$.
+}
+\vspace{0.12cm}
+\begin{columns}[T,onlytextwidth]
+    \begin{column}{0.48\textwidth}
+        \cajaInfo{\linewidth}{%
+            \encCaja{Cómputo local}
+            \begin{itemize}
+                \item \textbf{Sin raíz cuadrada}: elegir vecinos sobre $\|q-x\|^2$ (una pasada menos).
+                \item \textbf{\texttt{float32}}: píxeles enteros 0--16; la mitad de bytes.
+                \item \textbf{Bloqueo por caché}: bloques de $\Xtr$ en L2 y top-$k$ incremental, sin
+                      materializar la matriz de $\sim$80\,MB.
+            \end{itemize}
+        }
+    \end{column}
+    \begin{column}{0.48\textwidth}
+        \cajaInfo{\linewidth}{%
+            \encCaja{Comunicación y plataforma}
+            \begin{itemize}
+                \item \textbf{Una copia de $\Xtr$ por nodo} con \texttt{MPI\_Win\_allocate\_shared}
+                      (sin \texttt{Bcast} lineal).
+                \item \textbf{Fusión en árbol} del DAG con \texttt{MPI\_Reduce} propio:
+                      $O(m\,k\log p)$.
+                \item \textbf{NUMA}: procesos y datos por socket.
+                \item \textbf{Varios nodos} con $p^*\approx3$--$4$ procesos cada uno.
+            \end{itemize}
+        }
+    \end{column}
+\end{columns}
+\end{frame}
+
+% ------------------------------------------------------------------------------
 \begin{frame}{Conclusiones}
 \footnotesize
 \vspace{0.1cm}
@@ -700,9 +777,15 @@ $E=\dfrac{1}{1+T_o/W}$ es constante si la sobrecarga relativa $T_o/W$ es constan
             memoria.
         }\\[0.15cm]
         \cajaAcento{\linewidth}{%
-            \encCaja{5. Recomendación}
-            El paralelo es $\sim$3$\times$ más rápido que el secuencial para el mismo problema, pero
-            se estanca desde $p=4$--$8$: usar \textbf{4--8 procesos}.
+            \encCaja{5. Número óptimo de procesos}
+            Modelo $T=k_1W/p+k_2W(1-1/p)$ (error 8--10\,\%):
+            \textbf{$p^*=k_1/k_2=F_{\max}/F_1\approx3$--$4$}. El paralelo es $\sim$3$\times$ más
+            rápido que el secuencial para el mismo problema.
+        }\\[0.15cm]
+        \cajaOk{\linewidth}{%
+            \encCaja{6. Mejoras}
+            Reducir el tráfico de memoria (sin raíz, \texttt{float32}, bloqueo por caché, una copia de
+            $\Xtr$ por nodo) y escalar con varios nodos de $p^*$ procesos.
         }
     \end{column}
 \end{columns}
