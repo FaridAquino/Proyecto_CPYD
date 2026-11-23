@@ -2,7 +2,7 @@
 #SBATCH --job-name=knn-mpi
 #SBATCH --nodes=1
 #SBATCH --ntasks=32
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=2         # SLURM cuenta hilos SMT: 2 CPUs = 1 núcleo físico completo
 #SBATCH --mem=64G                 # explícito: el valor por defecto de SLURM no alcanza (OOM)
 #SBATCH --time=02:00:00
 #SBATCH --output=slurm-%j.out
@@ -81,6 +81,7 @@ N0_ISO=${N0_ISO:-250}
 export MPIEXEC_FLAGS=${MPIEXEC_FLAGS:-"--bind-to core --map-by core --report-bindings"}
 
 echo "[khipu] job=${SLURM_JOB_ID:-local} nodos=${SLURM_JOB_NODELIST:-?} ntasks=${SLURM_NTASKS:-?} modo=$MODE"
+echo "[khipu] CPUs asignadas: $(grep Cpus_allowed_list /proc/self/status | cut -f2)"
 echo "[khipu] python=$(which python)  mpiexec=$(which mpiexec 2>/dev/null || which mpirun)"
 
 case "$MODE" in
