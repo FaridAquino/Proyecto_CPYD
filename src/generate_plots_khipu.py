@@ -38,9 +38,19 @@ k6: modelo T_p(p) = k1 W/p + k2 T_comm(p) ajustado a la Beta 3 (strong) y p* óp
 Escalabilidad débil: no se grafica; E_w(p) se guarda en model_fit.json ("weak").
 k9: microbenchmark de MPI_Bcast / MPI_Gather -> alpha, beta.
 
+Modo iso (isoeficiencia, MODE=iso en run_khipu.sh):
+  results/khipu/isoeficiencia/ -> figures/khipu/isoeficiencia/
+  Cada versión se mide sólo con su condición de isoeficiencia (colectivas en árbol):
+    Beta 3 (iso-test):  una recta por cada n fijo, con m = M0 p log2 p.
+    DAG    (iso-train): una recta por cada m fijo, con n = N0 p log2 p.
+  El color es el tamaño fijo. Como el trabajo W = 3 m n d cambia con p, k3 usa el
+  speedup escalado S(p) = [W(p)/W(1)] T(1)/T(p) y k4 la eficiencia E(p) = S(p)/p.
+  Genera k2, k3, k4, k5 y k8 (k6 y k9 no aplican) y una tabla con ambas versiones.
+
 Uso:
     python src/generate_plots_khipu.py
     python src/generate_plots_khipu.py --modo test
+    python src/generate_plots_khipu.py --modo iso
     python src/generate_plots_khipu.py --results <dir> --figures <dir>
 
 Speedup relativo a la propia versión: S(p) = T(1)/T(p); E(p) = S(p)/p.
@@ -63,16 +73,18 @@ from scipy.optimize import curve_fit, nnls
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ap = argparse.ArgumentParser(description=__doc__,
                              formatter_class=argparse.RawDescriptionHelpFormatter)
-ap.add_argument("--modo", choices=["train", "test"], default="train",
-                help="train: aumenta el entrenamiento; test: aumenta el test")
+ap.add_argument("--modo", choices=["train", "test", "iso"], default="train",
+                help="train: aumenta el entrenamiento; test: aumenta el test; "
+                     "iso: isoeficiencia (m o n ~ p log2 p)")
 ap.add_argument("--results", default=None, help="por defecto results/khipu/aumento_<modo>")
 ap.add_argument("--figures", default=None, help="por defecto figures/khipu/aumento_<modo>")
 ap.add_argument("--comm", default=None,
                 help="comm_bench.csv (por defecto el de --results o, si falta, el de aumento_train)")
 args = ap.parse_args()
 MODO = args.modo
-RES = os.path.abspath(args.results or os.path.join(ROOT, "results", "khipu", f"aumento_{MODO}"))
-FIG = os.path.abspath(args.figures or os.path.join(ROOT, "figures", "khipu", f"aumento_{MODO}"))
+SUB = "isoeficiencia" if MODO == "iso" else f"aumento_{MODO}"
+RES = os.path.abspath(args.results or os.path.join(ROOT, "results", "khipu", SUB))
+FIG = os.path.abspath(args.figures or os.path.join(ROOT, "figures", "khipu", SUB))
 os.makedirs(FIG, exist_ok=True)
 
 # --------------------------------------------------------------------- estilo
@@ -123,6 +135,14 @@ if not os.path.exists(csv_path):
     sys.exit(f"No existe {csv_path}. Ejecute primero los benchmarks en Khipu.")
 R = pd.read_csv(csv_path)
 MED = R.groupby(["version", "tag", "N", "s"], as_index=False).median(numeric_only=True)
+# Isoeficiencia: cada serie es el tamaño que queda FIJO; el otro crece como p log2 p.
+#   iso-test  (Beta 3): serie = n fijo, m = M0 p log2 p
+#   iso-train (DAG):    serie = m fijo, n = N0 p log2 p
+ISO_TAGS = {"v3": "iso-test", "dag": "iso-train"}
+if MODO == "iso":
+    MED = MED[[ISO_TAGS.get(v) == t for v, t in zip(MED.version, MED.tag)]].copy()
+    MED["serie"] = np.where(MED.version == "v3", MED.n_train, MED.m_test).astype(int)
+    MED["tag"] = "iso"
 cb_path = args.comm or os.path.join(RES, "comm_bench.csv")
 if not os.path.exists(cb_path) and MODO == "test":
     cb_path = os.path.join(ROOT, "results", "khipu", "aumento_train", "comm_bench.csv")
@@ -141,15 +161,19 @@ if MODO == "train":
         print("  [aviso] sin filas 'strong-train' (m fijo): se usa 'strong' (split 80/20,"
               " m cambia con N). Corra MODE=train en Khipu.")
     WEAK_TAGS = [("weak-work", r"$N=N_0\sqrt{p}$"), ("weak-lin", r"$N=N_0\,p$")]
-else:
+elif MODO == "test":
     TAG_STRONG, SIZE, SYM = "strong-test", "m_test", "m"
     WEAK_TAGS = [("weak-test", r"$m=m_0\,p$")]
+else:                                                # iso
+    TAG_STRONG, SIZE, SYM = "iso", "serie", "iso"
+    WEAK_TAGS = []
+ISO = MODO == "iso"
 VERS = [("v3", "Beta 3"), ("dag", "DAG")]
 
 V = MED[MED.tag == "versions"]                       # load_digits: seq, Beta 1-3
 VB = [(v, lab) for v, lab in BETAS if not V[V.version == v].empty]
 S_VERS = sorted(int(s) for s in V[V.version.isin([v for v, _ in VB])].s.unique())
-ST = MED[(MED.tag == TAG_STRONG) & (MED.version == "v3")]
+ST = MED[(MED.tag == TAG_STRONG) & (ISO | (MED.version == "v3"))]   # iso: series de ambas
 N_STRONG = sorted(int(n) for n in ST[SIZE].unique())
 S_STRONG = sorted(int(s) for s in ST.s.unique())
 NMAX = max(N_STRONG) if N_STRONG else None
@@ -215,11 +239,16 @@ T_DIGITS = "load_digits ($n$=1437, $m$=360, $p\\leq 8$)"
 # Ajustes: speedup por versión (load_digits) y Amdahl de la Beta 3 (strong)
 # =========================================================================
 def speedup_fit(d, with_amdahl=False):
-    """S y E relativos al s=1 de la misma serie; None si falta s=1."""
+    """S y E relativos al s=1 de la misma serie; None si falta s=1.
+    En modo iso el trabajo cambia con p y se usa el speedup escalado
+    S(p) = [W(p)/W(1)] T(1)/T(p), con W = 3 m n d."""
     if len(d) < 2 or int(d.s.iloc[0]) != 1:
         return None
     T1 = float(d.T_total.iloc[0])
     S = T1 / d.T_total.values
+    if ISO:
+        W = (d.m_test * d.n_train).values.astype(float)
+        S = S * W / W[0]
     p = dict(T1=T1, s=d.s.astype(int).tolist(), S=S.tolist(),
              E=(S / d.s.values).tolist(), S_max_medido=float(S.max()),
              s_best_medido=int(d.s[np.argmin(d.T_total.values)]))
@@ -241,7 +270,7 @@ for v, _ in VB:
         fit["speedup"][f"{v}_digits"] = p
 for v, _ in VERS:
     for N in N_STRONG:
-        p = speedup_fit(strong(N, v), with_amdahl=True)
+        p = speedup_fit(strong(N, v), with_amdahl=not ISO)   # Amdahl supone tamaño fijo
         if p:
             fit["speedup"][skey(v, N)] = p
         else:
@@ -272,10 +301,17 @@ VSTYLE = {"v3": ("o", "-"), "dag": ("s", "--")}
 COLORS = [C["blue"], C["orange"], C["green"], C["pink"]]
 
 
-def nm_label(N):
-    """'n=40k, m=10k': tamaños fijos de train y test de la serie N."""
-    d = strong(N)
-    return f"$n$={kfmt(int(d.n_train.iloc[0]))}, $m$={kfmt(int(d.m_test.iloc[0]))}"
+def nm_label(N, v="v3"):
+    """'n=40k, m=10k': tamaños fijos de train y test de la serie N.
+    En modo iso, el tamaño fijo y la regla del que crece:
+    Beta 3 'n=10k, m=1000·p log2 p'; DAG 'm=10k, n=1000·p log2 p'."""
+    d = strong(N, v)
+    n0, m0 = int(d.n_train.iloc[0]), int(d.m_test.iloc[0])
+    if ISO:
+        if v == "v3":                                # iso-test: m crece
+            return rf"$n$={kfmt(n0)}, $m$={m0}$\cdot p\log_2 p$"
+        return rf"$m$={kfmt(m0)}, $n$={n0}$\cdot p\log_2 p$"
+    return f"$n$={kfmt(n0)}, $m$={kfmt(m0)}"
 
 
 def strong_lines(ax, getter, legend=True):
@@ -288,7 +324,7 @@ def strong_lines(ax, getter, legend=True):
             if xy is None:
                 continue
             x, y = list(xy[0]), list(xy[1])
-            ax.plot(x, y, color=col, marker=mk, ls=ls, label=f"{vlab}, {nm_label(N)}",
+            ax.plot(x, y, color=col, marker=mk, ls=ls, label=f"{vlab}, {nm_label(N, v)}",
                     mfc=col if v == "v3" else "white")
             pv |= set(int(i) for i in x); ymax = max(ymax, float(np.nanmax(y)))
     sticks(ax, sorted(pv))
@@ -347,9 +383,15 @@ else:
     top_s = max(S_STRONG)
     smax = strong_lines(ax, from_sp("S"))
     ax.plot([1, top_s], [1, top_s], color=C["light"], lw=1, zorder=1)     # ideal S = p
-    ax.set_ylim(0, min(top_s, smax * 1.6) * 1.05)
-    ax.set_xlabel("procesos $p$"); ax.set_ylabel("speedup")
-    ax.set_title("Speedup")
+    # En iso el speedup escalado puede superar p (punto base p=1 con matrices pequeñas).
+    ax.set_ylim(0, (max(top_s, smax) if ISO else min(top_s, smax * 1.6)) * 1.05)
+    ax.set_xlabel("procesos $p$")
+    if ISO:
+        ax.set_ylabel(r"speedup escalado $\frac{W(p)}{W(1)}\,\frac{T(1)}{T(p)}$")
+        ax.set_title("Speedup escalado")
+    else:
+        ax.set_ylabel("speedup")
+        ax.set_title("Speedup")
     save(fig, "k3_speedup")
 
 
@@ -472,6 +514,8 @@ if comm and MODO == "train":
         sticks(ax, x.s.astype(int).tolist())
         ax.legend(loc="upper left" if op == "Bcast" else "lower right")
     save(fig, "k9_comunicacion")
+elif ISO:
+    skip("k6_modelo / k9_comunicacion", "no aplican en modo iso (el tamaño cambia con p)")
 elif not comm:
     skip("k9_comunicacion / k6_modelo", "falta comm_bench.csv (extra_benchmarks.py --exp comm)")
 
@@ -561,7 +605,32 @@ for v, _ in VERS:
 # =========================================================================
 # Tabla LaTeX (Beta 3, strong, N máximo) y JSON de ajustes
 # =========================================================================
-p = sp(skey("v3", NMAX)) if NMAX else None
+def iso_table():
+    """Tabla de isoeficiencia: Beta 3 (n fijo, m ~ p log p) y DAG (m fijo, n ~ p log p)."""
+    lines = [r"% --- Khipu (iso): isoeficiencia, tamaño ~ p log2 p ---",
+             r"\begin{tabular}{lrrrrrrr}", r"\toprule",
+             r"Versión & $p$ & $n$ & $m$ & $T_{\text{total}}$ [s] & "
+             r"$T_{\text{comm}}$ [s] & $E(p)$ & GFLOP/s \\", r"\midrule"]
+    for v, vlab in VERS:
+        for N in N_STRONG:
+            q, d = sp(skey(v, N)), strong(N, v)
+            if not q:
+                continue
+            for i, r in d.iterrows():
+                lines.append(rf"{vlab} & {int(r.s)} & {int(r.n_train)} & "
+                             rf"{int(r.m_test)} & {r.T_total:.4f} & {r.T_comm:.4f} & "
+                             rf"{q['E'][i]:.2f} & {r.gflops:.1f} \\")
+            lines.append(r"\midrule")
+    lines[-1] = r"\bottomrule"
+    lines += [r"\end{tabular}", ""]
+    return lines
+
+
+p = sp(skey("v3", NMAX)) if NMAX is not None and not ISO else None
+if ISO and N_STRONG:
+    with open(os.path.join(RES, "tables.tex"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(iso_table()))
+    print(f"  {rel(os.path.join(RES, 'tables.tex'))}")
 if p:
     d = strong(NMAX)
     lines = [rf"% --- Khipu ({MODO}): escalabilidad fuerte, Beta 3, {SYM} = {NMAX} ---",
