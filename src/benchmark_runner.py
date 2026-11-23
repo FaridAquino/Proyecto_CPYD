@@ -25,10 +25,10 @@ Experimento "aumento de train" con test FIJO (simétrico al anterior):
 Experimentos de isoeficiencia (modelo de colectivas en árbol). Con Bcast en árbol la
 sobrecarga relativa de la Beta 3 es T_o/W ~ p log p / m (n se cancela), y la de la
 variante DAG, que difunde X_te, es ~ p log p / n. Para mantener E(p) constante:
-  iso-test   n_train fijo (--n-iso) y m = M0 * g(p)   -> condición de la Beta 3.
-  iso-train  m_test fijo (--m-iso)  y n = N0 * g(p)   -> condición de la variante DAG.
+  iso-test   Beta 3: para cada n fijo en --n-iso, m = M0 * g(p).
+  iso-train  DAG:    para cada m fijo en --m-iso, n = N0 * g(p).
   con g(p) = p * max(1, log2 p)  (g(1) = 1: con p = 1 no hay sobrecarga).
-Ambas versiones corren en ambos experimentos para contrastar las dos condiciones.
+Cada versión corre sólo en el experimento de su condición.
 
 Afinidad: la variable de entorno MPIEXEC_FLAGS se añade a cada mpiexec, p. ej.
   MPIEXEC_FLAGS="--bind-to core --map-by core --report-bindings"   (Open MPI)
@@ -289,10 +289,12 @@ def exp_test(mpiexec, csv_path, kind, versions, s_list, M_values, M0, n_train, r
         jobs = [(s, n_train, m) for m in M_values for s in s_list]
     elif kind == "weak-test":
         jobs = [(s, n_train, M0 * s) for s in s_list]
-    elif kind == "iso-test":                               # m = M0 g(p), n fijo
-        jobs = [(s, n_train, M0 * iso_g(s)) for s in s_list]
-    elif kind == "iso-train":                              # n = N0 g(p), m fijo
-        jobs = [(s, N_train_values[0] * iso_g(s), m_fixed) for s in s_list]
+    elif kind == "iso-test":                               # Beta 3: n fijo, m = M0 g(p)
+        jobs = [(s, n, M0 * iso_g(s)) for n in n_train for s in s_list]
+        versions = ["v3"]
+    elif kind == "iso-train":                              # DAG: m fijo, n = N0 g(p)
+        jobs = [(s, N_train_values[0] * iso_g(s), m) for m in m_fixed for s in s_list]
+        versions = ["dag"]
     else:                                                  # strong-train
         jobs = [(s, n, m_fixed) for n in N_train_values for s in s_list]
     for s, n, m in jobs:
@@ -356,10 +358,12 @@ def main():
     ap.add_argument("--N-train", type=int, nargs="+", default=[50000, 100000, 200000],
                     help="tamaños de train n para strong-train")
     ap.add_argument("--m-test", type=int, default=50000, help="m fijo en strong-train")
-    ap.add_argument("--n-iso", type=int, default=10000, help="n fijo en iso-test")
-    ap.add_argument("--M0-iso", type=int, default=250, help="m = M0 g(p) en iso-test")
-    ap.add_argument("--m-iso", type=int, default=10000, help="m fijo en iso-train")
-    ap.add_argument("--N0-iso", type=int, default=250, help="n = N0 g(p) en iso-train")
+    ap.add_argument("--n-iso", type=int, nargs="+", default=[10000, 20000, 40000],
+                    help="valores de n fijo en iso-test (Beta 3)")
+    ap.add_argument("--M0-iso", type=int, default=1000, help="m = M0 g(p) en iso-test")
+    ap.add_argument("--m-iso", type=int, nargs="+", default=[10000, 20000, 40000],
+                    help="valores de m fijo en iso-train (DAG)")
+    ap.add_argument("--N0-iso", type=int, default=1000, help="n = N0 g(p) en iso-train")
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--out", default=RESULTS,
                     help="carpeta de resultados (p. ej. results/khipu)")

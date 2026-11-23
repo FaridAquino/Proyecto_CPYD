@@ -37,8 +37,10 @@
 #   M0_TEST        m por proceso en weak-test (por defecto 10000)
 #   NTRAIN_LIST    tamaños de train para MODE=train (por defecto "50000 100000 200000")
 #   M_TEST         m fijo en MODE=train (por defecto 50000)
-#   N_ISO, M0_ISO  MODE=iso, iso-test:  n fijo y m = M0_ISO * p*log2(p) (10000, 250)
-#   M_ISO, N0_ISO  MODE=iso, iso-train: m fijo y n = N0_ISO * p*log2(p) (10000, 250)
+#   N_ISO, M0_ISO  MODE=iso, iso-test (Beta 3): para cada n fijo de N_ISO,
+#                  m = M0_ISO * p*log2(p)   (por defecto "10000 20000 40000", 1000)
+#   M_ISO, N0_ISO  MODE=iso, iso-train (DAG): para cada m fijo de M_ISO,
+#                  n = N0_ISO * p*log2(p)   (por defecto "10000 20000 40000", 1000)
 #   REPS_ISO       repeticiones medidas en MODE=iso (por defecto 5; tiempos cortos)
 #                  Cada lanzamiento hace además 1 ejecución de calentamiento descartada.
 #   MPIEXEC_FLAGS  opciones extra de mpiexec; por defecto fija un proceso por núcleo
@@ -77,10 +79,10 @@ TEST_EXPS=${TEST_EXPS:-"strong-test"}
 M0_TEST=${M0_TEST:-10000}
 NTRAIN_LIST=${NTRAIN_LIST:-"50000 100000 200000"}
 M_TEST=${M_TEST:-50000}
-N_ISO=${N_ISO:-10000}
-M0_ISO=${M0_ISO:-250}
-M_ISO=${M_ISO:-10000}
-N0_ISO=${N0_ISO:-250}
+N_ISO=${N_ISO:-"10000 20000 40000"}
+M0_ISO=${M0_ISO:-1000}
+M_ISO=${M_ISO:-"10000 20000 40000"}
+N0_ISO=${N0_ISO:-1000}
 export MPIEXEC_FLAGS=${MPIEXEC_FLAGS:-"--bind-to core --map-by core --report-bindings"}
 
 echo "[khipu] job=${SLURM_JOB_ID:-local} nodos=${SLURM_JOB_NODELIST:-?} ntasks=${SLURM_NTASKS:-?} modo=$MODE"
@@ -110,7 +112,7 @@ case "$MODE" in
         ;;
     iso)
         python -u src/benchmark_runner.py --out "$OUT_ISO" --exp iso-test iso-train \
-               --s $S_LIST --n-iso "$N_ISO" --M0-iso "$M0_ISO" --m-iso "$M_ISO" \
+               --s $S_LIST --n-iso $N_ISO --M0-iso "$M0_ISO" --m-iso $M_ISO \
                --N0-iso "$N0_ISO" --reps "${REPS_ISO:-5}"
         ;;
     *)
