@@ -39,6 +39,8 @@
 #   M_TEST         m fijo en MODE=train (por defecto 50000)
 #   N_ISO, M0_ISO  MODE=iso, iso-test:  n fijo y m = M0_ISO * p*log2(p) (10000, 250)
 #   M_ISO, N0_ISO  MODE=iso, iso-train: m fijo y n = N0_ISO * p*log2(p) (10000, 250)
+#   REPS_ISO       repeticiones medidas en MODE=iso (por defecto 5; tiempos cortos)
+#                  Cada lanzamiento hace además 1 ejecución de calentamiento descartada.
 #   MPIEXEC_FLAGS  opciones extra de mpiexec; por defecto fija un proceso por núcleo
 #                  y reporta la afinidad (--bind-to core --map-by core --report-bindings)
 set -eo pipefail
@@ -109,7 +111,7 @@ case "$MODE" in
     iso)
         python -u src/benchmark_runner.py --out "$OUT_ISO" --exp iso-test iso-train \
                --s $S_LIST --n-iso "$N_ISO" --M0-iso "$M0_ISO" --m-iso "$M_ISO" \
-               --N0-iso "$N0_ISO" --reps "$REPS"
+               --N0-iso "$N0_ISO" --reps "${REPS_ISO:-5}"
         ;;
     *)
         echo "MODE desconocido: $MODE (use quick | full | comm | test | train | iso)"; exit 1
