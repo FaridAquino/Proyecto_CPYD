@@ -47,6 +47,6 @@ desktop.ini
 .vscode/
 .idea/
 
-# ---------------- Informe LaTeX y enunciados (no se versionan)
-latex/
+# ---------------- Enunciados e informes de referencia (no se versionan)
+# latex/ SÍ se versiona (informe .tex y .pdf); sus auxiliares quedan excluidos arriba.
 Proyecto_part1_CPD.pdf
