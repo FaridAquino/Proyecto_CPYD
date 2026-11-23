@@ -43,3 +43,7 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+
+# ---------------- Informe LaTeX y enunciados (no se versionan)
+latex/
+Proyecto_part1_CPD.pdf
